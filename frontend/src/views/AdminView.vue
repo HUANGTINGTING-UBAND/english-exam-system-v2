@@ -930,6 +930,14 @@ onMounted(() => {
         <RouterLink class="secondary-btn" to="/admin/attempts">
           查看学生考试记录
         </RouterLink>
+
+        <RouterLink class="secondary-btn" to="/import-drafts">
+          导入草稿
+        </RouterLink>
+
+        <RouterLink class="secondary-btn" to="/skills">
+          Skill 配置
+        </RouterLink>
       </div>
 
       <div v-if="errorMessage" class="api-warning">

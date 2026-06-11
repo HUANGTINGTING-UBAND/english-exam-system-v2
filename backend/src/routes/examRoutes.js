@@ -39,13 +39,27 @@ const buildExamGradeWhere = ({ grade, group }) => {
 const normalizeSubmitType = (submitType) => {
   const text = String(submitType || 'MANUAL').trim().toUpperCase()
 
-  const allowedTypes = ['MANUAL', 'AUTO', 'TIMEOUT']
+  const allowedTypes = ['MANUAL', 'AUTO']
 
   if (allowedTypes.includes(text)) {
     return text
   }
 
   return 'MANUAL'
+}
+
+const parseOptionalDate = (value) => {
+  if (!value) {
+    return null
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  return date
 }
 
 const normalizeChoiceAnswer = (answer) => {
@@ -290,6 +304,9 @@ router.get('/exams/:examId/questions', async (req, res) => {
       orderBy: {
         orderIndex: 'asc',
       },
+      include: {
+        material: true,
+      },
     })
 
     res.json({
@@ -314,9 +331,14 @@ router.post('/attempts/submit', requireAuth, async (req, res) => {
       submitType: rawSubmitType,
       usedTime,
       pauseCount,
+      totalPausedDuration,
+      startedAt,
+      submittedAt,
+      assignmentId,
     } = req.body
 
     const submitType = normalizeSubmitType(rawSubmitType)
+    const finalAssignmentId = assignmentId ? String(assignmentId).trim() : null
 
     if (!examId) {
       return res.status(400).json({
@@ -334,6 +356,57 @@ router.post('/attempts/submit', requireAuth, async (req, res) => {
       return res.status(404).json({
         message: '试卷不存在',
       })
+    }
+
+    let assignment = null
+
+    if (finalAssignmentId) {
+      assignment = await prisma.assignment.findUnique({
+        where: {
+          id: finalAssignmentId,
+        },
+        include: {
+          classroom: true,
+        },
+      })
+
+      if (!assignment) {
+        return res.status(404).json({
+          message: '班级任务不存在',
+        })
+      }
+
+      if (assignment.examId !== examId) {
+        return res.status(400).json({
+          message: '班级任务与当前试卷不匹配',
+        })
+      }
+
+      if (assignment.status !== 'PUBLISHED') {
+        return res.status(400).json({
+          message: '当前班级任务尚未发布或已关闭',
+        })
+      }
+
+      if (req.user.role !== 'STUDENT') {
+        return res.status(403).json({
+          message: '只有学生可以提交班级任务考试',
+        })
+      }
+
+      const membership = await prisma.classStudent.findFirst({
+        where: {
+          classroomId: assignment.classroomId,
+          studentId: req.user.id,
+          status: 'ACTIVE',
+        },
+      })
+
+      if (!membership) {
+        return res.status(403).json({
+          message: '你不属于该任务所在班级，不能提交',
+        })
+      }
     }
 
     const questions = await prisma.question.findMany({
@@ -434,6 +507,7 @@ router.post('/attempts/submit', requireAuth, async (req, res) => {
         data: {
           userId: req.user.id,
           examId,
+          assignmentId: finalAssignmentId,
           objectiveScore,
           subjectiveScore,
           totalScore,
@@ -441,6 +515,9 @@ router.post('/attempts/submit', requireAuth, async (req, res) => {
           submitType,
           usedTime: Number(usedTime || 0),
           pauseCount: Number(pauseCount || 0),
+          totalPausedDuration: Number(totalPausedDuration || 0),
+          startedAt: parseOptionalDate(startedAt),
+          submittedAt: parseOptionalDate(submittedAt) || new Date(),
         },
       })
 

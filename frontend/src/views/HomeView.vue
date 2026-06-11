@@ -49,6 +49,22 @@ onMounted(() => {
               管理员后台
             </RouterLink>
 
+            <RouterLink
+              v-if="currentUser.role === 'TEACHER'"
+              class="home-auth-link"
+              to="/teacher"
+            >
+              教师工作台
+            </RouterLink>
+
+            <RouterLink
+              v-if="currentUser.role === 'STUDENT'"
+              class="home-auth-link"
+              to="/student/assignments"
+            >
+              我的班级任务
+            </RouterLink>
+
             <button class="home-auth-button" @click="handleLogout">
               退出登录
             </button>
@@ -67,10 +83,10 @@ onMounted(() => {
 
         <p class="tag">English Exam System</p>
 
-        <h1>英语在线模拟考试与错题学习系统</h1>
+        <h1>英语智能考试、学情诊断与教学支持平台</h1>
 
         <p class="desc">
-          支持 K12 校内英语、大学英语、出国英语考试和其他英语考试分类练习，结合在线考试、结果分析、错题重练和管理员试卷管理，帮助学生形成完整学习闭环。
+          支持学生在线考试与错题复盘，教师班级任务与提交跟踪，并为后续学情诊断、导入草稿和教学资源生成预留平台底座。
         </p>
 
         <div class="actions">
@@ -88,6 +104,22 @@ onMounted(() => {
             to="/admin"
           >
             管理试卷
+          </RouterLink>
+
+          <RouterLink
+            v-if="currentUser?.role === 'TEACHER'"
+            class="secondary-btn"
+            to="/teacher"
+          >
+            教师工作台
+          </RouterLink>
+
+          <RouterLink
+            v-if="currentUser?.role === 'STUDENT'"
+            class="secondary-btn"
+            to="/student/assignments"
+          >
+            我的班级任务
           </RouterLink>
         </div>
       </div>

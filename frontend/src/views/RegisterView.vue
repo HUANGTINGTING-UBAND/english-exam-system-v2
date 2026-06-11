@@ -8,6 +8,8 @@ const router = useRouter()
 const username = ref('')
 const nickname = ref('')
 const password = ref('')
+const role = ref('STUDENT')
+const teacherCode = ref('')
 const isLoading = ref(false)
 const errorMessage = ref('')
 
@@ -31,11 +33,13 @@ const handleRegister = async () => {
       username: username.value,
       nickname: nickname.value || username.value,
       password: password.value,
+      role: role.value,
+      teacherCode: role.value === 'TEACHER' ? teacherCode.value : undefined,
     })
 
     saveAuthData(authData)
     window.alert('注册成功')
-    router.push('/profile')
+    router.push(authData.user?.role === 'TEACHER' ? '/teacher' : '/profile')
   } catch (error) {
     console.error(error)
     errorMessage.value = error.message || '注册失败'
@@ -82,6 +86,23 @@ const handleRegister = async () => {
           v-model="password"
           type="password"
           placeholder="请输入至少 6 位密码"
+        />
+      </label>
+
+      <label>
+        账号角色
+        <select v-model="role">
+          <option value="STUDENT">学生</option>
+          <option value="TEACHER">教师</option>
+        </select>
+      </label>
+
+      <label v-if="role === 'TEACHER'">
+        教师注册码
+        <input
+          v-model="teacherCode"
+          type="text"
+          placeholder="请输入教师注册码"
         />
       </label>
 

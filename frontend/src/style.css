@@ -2305,3 +2305,22 @@ h1 {
   gap: 10px;
   margin-bottom: 24px;
 }
+
+.question-material-box {
+  margin-bottom: 18px;
+  padding: 18px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.question-material-box h3 {
+  margin: 4px 0 10px;
+  color: #111827;
+}
+
+.question-material-box p {
+  margin: 8px 0 0;
+  line-height: 1.7;
+}

@@ -40,6 +40,10 @@ const startedAt = ref(null)
 const submittedAt = ref(null)
 
 const examId = computed(() => route.params.examId)
+const assignmentId = computed(() => {
+  return route.params.assignmentId || route.query.assignmentId || ''
+})
+const isAssignmentExam = computed(() => Boolean(assignmentId.value))
 
 const currentExam = computed(() => {
   return examData.value
@@ -260,7 +264,9 @@ const getQuestionNavClass = (question, index) => {
 }
 
 const getProgressStorageKey = () => {
-  return `exam-progress-${examId.value}`
+  return isAssignmentExam.value
+    ? `assignment-progress-${assignmentId.value}-${examId.value}`
+    : `exam-progress-${examId.value}`
 }
 
 const saveProgress = () => {
@@ -532,6 +538,7 @@ const goToQuestion = (index) => {
 const buildAttemptPayload = (type) => {
   return {
     examId: examId.value,
+    assignmentId: assignmentId.value || undefined,
     objectiveScore: objectiveScore.value,
     subjectiveScore: subjectiveScore.value,
     totalScore: totalScore.value,
@@ -688,6 +695,10 @@ onBeforeUnmount(() => {
       <p class="tag">Exam Preview</p>
       <h1>{{ currentExam.title }}</h1>
       <p class="exam-desc">{{ currentExam.description }}</p>
+
+      <div v-if="isAssignmentExam" class="api-success">
+        你正在完成班级任务考试，提交后老师可以查看本次成绩和提交状态。
+      </div>
 
       <div class="exam-info-grid">
         <div class="exam-info-item">
@@ -933,6 +944,14 @@ onBeforeUnmount(() => {
            <RouterLink class="secondary-btn" to="/exams">
              返回试卷列表
            </RouterLink>
+
+           <RouterLink
+             v-if="isAssignmentExam"
+             class="secondary-btn"
+             to="/student/assignments"
+           >
+             返回班级任务
+           </RouterLink>
           </div>
         </div>
 
@@ -947,6 +966,15 @@ onBeforeUnmount(() => {
           >
             {{ isCurrentQuestionAnswered ? '当前题：已答' : '当前题：未答' }}
           </p>
+
+          <div v-if="currentQuestion.material" class="question-material-box">
+            <p class="tag">{{ currentQuestion.material.type }}</p>
+            <h3>{{ currentQuestion.material.title || '题目材料' }}</h3>
+            <p>{{ currentQuestion.material.content }}</p>
+            <p v-if="currentQuestion.material.transcript">
+              听力原文：{{ currentQuestion.material.transcript }}
+            </p>
+          </div>
 
           <h2>{{ currentQuestion.text }}</h2>
 

@@ -29,7 +29,12 @@ const handleLogin = async () => {
 
     saveAuthData(authData)
     window.alert('登录成功')
-    const redirectPath = route.query.redirect || '/profile'
+    const defaultPathMap = {
+      ADMIN: '/admin',
+      TEACHER: '/teacher',
+      STUDENT: '/profile',
+    }
+    const redirectPath = route.query.redirect || defaultPathMap[authData.user?.role] || '/profile'
     router.push(String(redirectPath))
   } catch (error) {
     console.error(error)

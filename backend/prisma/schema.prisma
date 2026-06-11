@@ -8,6 +8,7 @@ datasource db {
 
 enum Role {
   STUDENT
+  TEACHER
   ADMIN
 }
 
@@ -42,6 +43,47 @@ enum SubmitType {
   AUTO
 }
 
+enum ClassStudentStatus {
+  ACTIVE
+  REMOVED
+}
+
+enum AssignmentStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+enum MaterialType {
+  READING
+  LISTENING
+  CLOZE
+  OTHER
+}
+
+enum ImportJobStatus {
+  DRAFT
+  PARSED
+  CONFIRMED
+  IMPORTED
+  FAILED
+}
+
+enum GenerationRunStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum ResourceType {
+  REVIEW_NOTE
+  WORKSHEET
+  EXERCISE
+  LESSON_PLAN
+  OTHER
+}
+
 model User {
   id           String      @id @default(cuid())
   username     String      @unique
@@ -54,6 +96,15 @@ model User {
 
   attempts       ExamAttempt[]
   wrongQuestions WrongQuestion[]
+  teachingClassrooms       Classroom[]          @relation("ClassroomTeacher")
+  classMemberships         ClassStudent[]       @relation("ClassStudentStudent")
+  teachingAssignments      Assignment[]         @relation("AssignmentTeacher")
+  importJobs               ImportJob[]          @relation("ImportJobCreator")
+  createdGenerationSkills  GenerationSkill[]    @relation("GenerationSkillCreator")
+  generationRuns           GenerationRun[]      @relation("GenerationRunCreator")
+  diagnosisReports         DiagnosisReport[]    @relation("DiagnosisReportUser")
+  createdTeachingMaterials TeachingMaterial[]   @relation("TeachingMaterialTeacher")
+  createdSupplementResources SupplementResource[] @relation("SupplementResourceCreator")
 }
 
 model Exam {
@@ -68,13 +119,35 @@ model Exam {
   updatedAt   DateTime   @updatedAt
 
   questions      Question[]
+  materials      QuestionMaterial[]
   attempts       ExamAttempt[]
+  assignments    Assignment[]
   wrongQuestions WrongQuestion[]
+  diagnosisReports DiagnosisReport[]
+}
+
+model QuestionMaterial {
+  id         String       @id @default(cuid())
+  examId     String
+  type       MaterialType @default(READING)
+  title      String?
+  content    String
+  audioUrl   String?
+  transcript String?
+  orderIndex Int          @default(1)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  exam      Exam       @relation(fields: [examId], references: [id], onDelete: Cascade)
+  questions Question[]
+
+  @@index([examId])
 }
 
 model Question {
   id              String       @id @default(cuid())
   examId          String
+  materialId      String?
   type            QuestionType
   text            String
   options         Json?
@@ -88,16 +161,20 @@ model Question {
   updatedAt       DateTime     @updatedAt
 
   exam           Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  material       QuestionMaterial? @relation(fields: [materialId], references: [id], onDelete: SetNull)
   userAnswers    UserAnswer[]
   wrongQuestions WrongQuestion[]
+  analyses       QuestionAnalysis[]
 
   @@index([examId])
+  @@index([materialId])
 }
 
 model ExamAttempt {
   id                  String     @id @default(cuid())
   userId              String
   examId              String
+  assignmentId        String?
   objectiveScore      Float      @default(0)
   subjectiveScore     Float      @default(0)
   totalScore          Float      @default(0)
@@ -112,11 +189,14 @@ model ExamAttempt {
 
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   exam        Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  assignment  Assignment?  @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
   userAnswers UserAnswer[]
   wrongQuestions WrongQuestion[]
+  diagnosisReports DiagnosisReport[]
 
   @@index([userId])
   @@index([examId])
+  @@index([assignmentId])
 }
 
 model UserAnswer {
@@ -157,4 +237,270 @@ model WrongQuestion {
   @@index([examId])
   @@index([questionId])
   @@index([attemptId])
+}
+
+model Classroom {
+  id          String   @id @default(cuid())
+  teacherId   String
+  name        String
+  description String?
+  inviteCode  String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  teacher     User           @relation("ClassroomTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  students    ClassStudent[]
+  assignments Assignment[]
+  teachingMaterials TeachingMaterial[]
+  supplementResources SupplementResource[]
+
+  @@index([teacherId])
+}
+
+model ClassStudent {
+  id          String             @id @default(cuid())
+  classroomId String
+  studentId   String
+  status      ClassStudentStatus @default(ACTIVE)
+  joinedAt    DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  classroom Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  student   User      @relation("ClassStudentStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([classroomId, studentId])
+  @@index([studentId])
+}
+
+model Assignment {
+  id          String           @id @default(cuid())
+  classroomId String
+  teacherId   String
+  examId      String
+  title       String
+  description String?
+  status      AssignmentStatus @default(PUBLISHED)
+  dueAt       DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  classroom Classroom     @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  teacher   User          @relation("AssignmentTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  exam      Exam          @relation(fields: [examId], references: [id], onDelete: Cascade)
+  attempts  ExamAttempt[]
+  diagnosisReports DiagnosisReport[]
+  teachingMaterials TeachingMaterial[]
+  supplementResources SupplementResource[]
+
+  @@index([classroomId])
+  @@index([teacherId])
+  @@index([examId])
+}
+
+model ImportJob {
+  id          String          @id @default(cuid())
+  createdById String
+  title       String
+  gradeLevel  GradeLevel?
+  status      ImportJobStatus @default(DRAFT)
+  sourceType  String?
+  rawText     String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  creator        User                  @relation("ImportJobCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  draftQuestions ImportDraftQuestion[]
+  draftMaterials ImportDraftMaterial[]
+  warnings       ImportWarning[]
+
+  @@index([createdById])
+  @@index([status])
+}
+
+model ImportDraftMaterial {
+  id          String       @id @default(cuid())
+  importJobId String
+  type        MaterialType @default(READING)
+  title       String?
+  content     String
+  audioUrl    String?
+  transcript  String?
+  orderIndex  Int          @default(1)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  importJob ImportJob             @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  questions ImportDraftQuestion[]
+  warnings  ImportWarning[]
+
+  @@index([importJobId])
+}
+
+model ImportDraftQuestion {
+  id              String       @id @default(cuid())
+  importJobId     String
+  materialId      String?
+  type            QuestionType @default(CHOICE)
+  text            String
+  options         Json?
+  answer          Json?
+  score           Float?
+  knowledgePoint  String?
+  referenceAnswer String?
+  explanation     String?
+  orderIndex      Int          @default(1)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  importJob ImportJob             @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  material  ImportDraftMaterial?  @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  warnings  ImportWarning[]
+
+  @@index([importJobId])
+  @@index([materialId])
+}
+
+model ImportWarning {
+  id              String   @id @default(cuid())
+  importJobId      String
+  draftQuestionId  String?
+  draftMaterialId  String?
+  level           String   @default("warning")
+  field           String?
+  message         String
+  createdAt       DateTime @default(now())
+
+  importJob     ImportJob            @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  draftQuestion ImportDraftQuestion? @relation(fields: [draftQuestionId], references: [id], onDelete: SetNull)
+  draftMaterial ImportDraftMaterial? @relation(fields: [draftMaterialId], references: [id], onDelete: SetNull)
+
+  @@index([importJobId])
+  @@index([draftQuestionId])
+  @@index([draftMaterialId])
+}
+
+model GenerationSkill {
+  id          String   @id @default(cuid())
+  createdById String?
+  name        String
+  code        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  creator  User?              @relation("GenerationSkillCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  runs     GenerationRun[]
+  analyses QuestionAnalysis[]
+
+  @@index([createdById])
+  @@index([isActive])
+}
+
+model GenerationRun {
+  id          String              @id @default(cuid())
+  skillId     String
+  createdById String?
+  status      GenerationRunStatus @default(PENDING)
+  input       Json?
+  output      Json?
+  errorMessage String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  skill    GenerationSkill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  creator  User?           @relation("GenerationRunCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  analyses QuestionAnalysis[]
+
+  @@index([skillId])
+  @@index([createdById])
+  @@index([status])
+}
+
+model QuestionAnalysis {
+  id              String   @id @default(cuid())
+  questionId      String
+  skillId         String?
+  generationRunId String?
+  difficulty      String?
+  abilityTags     Json?
+  analysis        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  question      Question          @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  skill         GenerationSkill?  @relation(fields: [skillId], references: [id], onDelete: SetNull)
+  generationRun GenerationRun?    @relation(fields: [generationRunId], references: [id], onDelete: SetNull)
+
+  @@index([questionId])
+  @@index([skillId])
+  @@index([generationRunId])
+}
+
+model DiagnosisReport {
+  id           String   @id @default(cuid())
+  userId       String
+  examId       String?
+  attemptId    String?
+  assignmentId String?
+  title        String?
+  summary      String?
+  data         Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user       User         @relation("DiagnosisReportUser", fields: [userId], references: [id], onDelete: Cascade)
+  exam       Exam?        @relation(fields: [examId], references: [id], onDelete: SetNull)
+  attempt    ExamAttempt? @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+  assignment Assignment?  @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([examId])
+  @@index([attemptId])
+  @@index([assignmentId])
+}
+
+model TeachingMaterial {
+  id           String       @id @default(cuid())
+  teacherId    String?
+  classroomId  String?
+  assignmentId String?
+  title        String
+  type         ResourceType @default(REVIEW_NOTE)
+  content      String?
+  data         Json?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  teacher    User?       @relation("TeachingMaterialTeacher", fields: [teacherId], references: [id], onDelete: SetNull)
+  classroom  Classroom?  @relation(fields: [classroomId], references: [id], onDelete: SetNull)
+  assignment Assignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+
+  @@index([teacherId])
+  @@index([classroomId])
+  @@index([assignmentId])
+}
+
+model SupplementResource {
+  id           String       @id @default(cuid())
+  createdById  String?
+  classroomId  String?
+  assignmentId String?
+  title        String
+  type         ResourceType @default(EXERCISE)
+  content      String?
+  data         Json?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  creator    User?       @relation("SupplementResourceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  classroom  Classroom?  @relation(fields: [classroomId], references: [id], onDelete: SetNull)
+  assignment Assignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+
+  @@index([createdById])
+  @@index([classroomId])
+  @@index([assignmentId])
 }

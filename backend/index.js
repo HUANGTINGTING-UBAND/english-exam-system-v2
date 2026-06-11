@@ -9,6 +9,10 @@ const adminImportRoutes = require('./src/routes/adminImportRoutes')
 const resultRoutes = require('./src/routes/resultRoutes')
 const wrongPracticeRoutes = require('./src/routes/wrongPracticeRoutes')
 const adminAttemptRoutes = require('./src/routes/adminAttemptRoutes')
+const classroomRoutes = require('./src/routes/classroomRoutes')
+const assignmentRoutes = require('./src/routes/assignmentRoutes')
+const importDraftRoutes = require('./src/routes/importDraftRoutes')
+const skillRoutes = require('./src/routes/skillRoutes')
 
 const app = express()
 
@@ -85,8 +89,12 @@ app.get('/', (req, res) => {
       register: '/api/auth/register',
       adminExams: '/api/admin/exams',
       importFile: '/api/admin/import/parse-file',
+      teacherClassrooms: '/api/teacher/classrooms',
+      studentAssignments: '/api/student/assignments',
       attemptDetail: '/api/attempts/:attemptId/detail',
       wrongPractice: '/api/wrong-questions/:wrongQuestionId/practice',
+      importDrafts: '/api/import/jobs',
+      skills: '/api/skills',
     },
   })
 })
@@ -107,6 +115,10 @@ const routeList = [
   ['resultRoutes', resultRoutes],
   ['wrongPracticeRoutes', wrongPracticeRoutes],
   ['adminAttemptRoutes', adminAttemptRoutes],
+  ['classroomRoutes', classroomRoutes],
+  ['assignmentRoutes', assignmentRoutes],
+  ['importDraftRoutes', importDraftRoutes],
+  ['skillRoutes', skillRoutes],
 ]
 
 for (const [routeName, routeHandler] of routeList) {
@@ -136,6 +148,13 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3000
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Backend server is running on port ${PORT}`)
 })
+
+global.__englishExamServer = server
+
+module.exports = {
+  app,
+  server,
+}

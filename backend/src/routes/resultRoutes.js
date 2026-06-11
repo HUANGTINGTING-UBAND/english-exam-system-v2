@@ -64,8 +64,20 @@ router.get('/attempts/:attemptId/detail', requireAuth, async (req, res) => {
 
     const isOwner = attempt.userId === req.user.id
     const isAdmin = req.user.role === 'ADMIN'
+    let isAssignmentTeacher = false
 
-    if (!isOwner && !isAdmin) {
+    if (!isOwner && !isAdmin && req.user.role === 'TEACHER' && attempt.assignmentId) {
+      const assignment = await prisma.assignment.findFirst({
+        where: {
+          id: attempt.assignmentId,
+          teacherId: req.user.id,
+        },
+      })
+
+      isAssignmentTeacher = Boolean(assignment)
+    }
+
+    if (!isOwner && !isAdmin && !isAssignmentTeacher) {
       return res.status(403).json({
         message: '你无权查看这次考试记录',
       })
@@ -133,6 +145,7 @@ router.get('/attempts/:attemptId/detail', requireAuth, async (req, res) => {
         attempt: {
           id: attempt.id,
           examId: attempt.examId,
+          assignmentId: attempt.assignmentId,
           userId: attempt.userId,
           objectiveScore: attempt.objectiveScore,
           subjectiveScore: attempt.subjectiveScore,

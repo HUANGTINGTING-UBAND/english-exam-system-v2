@@ -32,7 +32,7 @@ const formatUser = (user) => {
 
 router.post('/auth/register', async (req, res) => {
   try {
-    const { username, password, nickname } = req.body
+    const { username, password, nickname, role, teacherCode } = req.body
 
     if (!username || !password) {
       return res.status(400).json({
@@ -58,6 +58,26 @@ router.post('/auth/register', async (req, res) => {
       })
     }
 
+    const requestedRole = String(role || 'STUDENT').trim().toUpperCase()
+    const finalRole = requestedRole === 'TEACHER' ? 'TEACHER' : 'STUDENT'
+
+    if (requestedRole === 'ADMIN') {
+      return res.status(403).json({
+        message: '管理员账号不能通过公开注册创建',
+      })
+    }
+
+    if (finalRole === 'TEACHER') {
+      const expectedTeacherCode =
+        process.env.TEACHER_REGISTER_CODE || 'teacher-invite-code'
+
+      if (!teacherCode || String(teacherCode).trim() !== expectedTeacherCode) {
+        return res.status(403).json({
+          message: '教师注册码不正确',
+        })
+      }
+    }
+
     const passwordHash = await bcrypt.hash(password, 10)
 
     const user = await prisma.user.create({
@@ -65,8 +85,8 @@ router.post('/auth/register', async (req, res) => {
         username,
         passwordHash,
         nickname: nickname || username,
-        role: 'STUDENT',
-        gradeLevel: 'PRIMARY',
+        role: finalRole,
+        gradeLevel: finalRole === 'STUDENT' ? 'PRIMARY' : null,
       },
     })
 

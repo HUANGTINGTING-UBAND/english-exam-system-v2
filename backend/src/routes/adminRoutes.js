@@ -731,6 +731,9 @@ router.get('/admin/exams/:examId/questions', requireAdmin, async (req, res) => {
       orderBy: {
         orderIndex: 'asc',
       },
+      include: {
+        material: true,
+      },
     })
 
     res.json({
@@ -753,6 +756,7 @@ router.post('/admin/exams/:examId/questions', requireAdmin, async (req, res) => 
 
     const {
       type,
+      materialId,
       text,
       options,
       answer,
@@ -792,6 +796,7 @@ router.post('/admin/exams/:examId/questions', requireAdmin, async (req, res) => 
     const createdQuestion = await prisma.question.create({
       data: {
         examId,
+        materialId: materialId || null,
         type: finalType,
         text,
         options: Array.isArray(options) && options.length > 0 ? options : null,
@@ -839,6 +844,7 @@ router.put('/admin/questions/:questionId', requireAdmin, async (req, res) => {
 
     const {
       type,
+      materialId,
       text,
       options,
       answer,
@@ -855,6 +861,8 @@ router.put('/admin/questions/:questionId', requireAdmin, async (req, res) => {
       },
       data: {
         type: type ? normalizeQuestionType(type) : existingQuestion.type,
+        materialId:
+          materialId === undefined ? existingQuestion.materialId : materialId || null,
         text: text ?? existingQuestion.text,
         options:
           options === undefined
