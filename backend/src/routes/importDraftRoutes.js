@@ -57,15 +57,9 @@ const normalizeChoiceAnswer = (answer) => {
   }
 
   const text = String(answer).trim().toUpperCase()
-  const map = {
-    A: 0,
-    B: 1,
-    C: 2,
-    D: 3,
-  }
 
-  if (map[text] !== undefined) {
-    return map[text]
+  if (/^[A-Z]$/.test(text)) {
+    return text.charCodeAt(0) - 65
   }
 
   const numberValue = Number(text)
@@ -206,6 +200,229 @@ const parseOptionsFromBlock = (blockText) => {
   return options.slice(0, 4)
 }
 
+const strictQuestionFieldNames = [
+  '题型标题',
+  '题号',
+  '原试卷题号',
+  '题型',
+  '题干',
+  '选项',
+  '答案',
+  '解析',
+  '知识点',
+  '分值',
+]
+
+const strictQuestionFieldLineRegex = new RegExp(
+  `^\\s*(${strictQuestionFieldNames.join('|')})\\s*[:：]\\s*(.*)$`
+)
+
+const parseStrictQuestionFields = (blockText) => {
+  const fields = {}
+  let currentField = ''
+
+  for (const line of String(blockText || '').split('\n')) {
+    const match = line.match(strictQuestionFieldLineRegex)
+
+    if (match) {
+      currentField = match[1]
+      fields[currentField] = fields[currentField]
+        ? `${fields[currentField]}\n${match[2] || ''}`
+        : match[2] || ''
+      continue
+    }
+
+    if (currentField) {
+      fields[currentField] = fields[currentField]
+        ? `${fields[currentField]}\n${line}`
+        : line
+    }
+  }
+
+  return Object.fromEntries(
+    Object.entries(fields).map(([key, value]) => {
+      return [key, String(value || '').trim()]
+    })
+  )
+}
+
+const normalizeStrictQuestionType = (typeText, titleText = '') => {
+  const rawType = String(typeText || '').trim().toUpperCase()
+  const rawTitle = String(titleText || '').trim()
+  const titleLower = rawTitle.toLowerCase()
+
+  if (questionTypes.has(rawType)) {
+    return rawType
+  }
+
+  if (rawType.includes('WRITING') || rawTitle.includes('写作') || rawTitle.includes('作文')) {
+    return 'WRITING'
+  }
+
+  if (rawType.includes('TRANSLATION') || rawTitle.includes('翻译')) {
+    return 'TRANSLATION'
+  }
+
+  if (rawType.includes('CLOZE') || rawTitle.includes('完形') || rawTitle.includes('选词填空')) {
+    return 'CLOZE'
+  }
+
+  if (
+    rawType.includes('READING') ||
+    rawTitle.includes('阅读') ||
+    titleLower.includes('reading')
+  ) {
+    return 'READING'
+  }
+
+  if (rawType.includes('ERROR') || rawTitle.includes('改错')) {
+    return 'ERROR_CORRECTION'
+  }
+
+  if (rawType.includes('CHOICE') || rawTitle.includes('选择') || rawTitle.includes('听力')) {
+    return 'CHOICE'
+  }
+
+  return null
+}
+
+const parseStrictOptions = (optionsText) => {
+  const normalized = String(optionsText || '').trim()
+
+  if (!normalized || normalized === '无' || normalized.toUpperCase() === 'NONE') {
+    return null
+  }
+
+  const optionRegex = /(?:^|\n)\s*([A-O])[\.\、．\)]\s*([\s\S]*?)(?=(?:\n\s*[A-O][\.\、．\)]\s*)|$)/gi
+  const options = []
+  let match = optionRegex.exec(normalized)
+
+  while (match) {
+    const option = String(match[2] || '')
+      .replace(/\n+/g, ' ')
+      .trim()
+
+    if (option) {
+      options.push(option)
+    }
+
+    match = optionRegex.exec(normalized)
+  }
+
+  if (options.length > 0) {
+    return options
+  }
+
+  return normalized
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+const parseStrictChineseQuestionFormat = (rawText) => {
+  const text = normalizeRawText(rawText)
+  const warnings = []
+  const blockRegex = /【题目开始】([\s\S]*?)【题目结束】/g
+  const blocks = [...text.matchAll(blockRegex)]
+    .map((match) => String(match[1] || '').trim())
+    .filter(Boolean)
+
+  if (blocks.length === 0) {
+    return {
+      draftMaterials: [],
+      draftQuestions: [],
+      warnings: [
+        {
+          level: 'error',
+          field: 'questions',
+          message: '检测到严格题目块标记，但解析字段失败，请检查字段名或解析器规则。',
+        },
+      ],
+    }
+  }
+
+  const draftQuestions = blocks.map((blockText, index) => {
+    const fields = parseStrictQuestionFields(blockText)
+    const orderIndex = Number(fields.题号 || index + 1)
+    const originalQuestionNumber = fields.原试卷题号 || ''
+    const title = fields.题型标题 || ''
+    const type = normalizeStrictQuestionType(fields.题型, title)
+    const options = parseStrictOptions(fields.选项)
+    const answerText = fields.答案 || ''
+    const score = fields.分值 === undefined || fields.分值 === ''
+      ? null
+      : Number(fields.分值)
+    const metadataLines = [
+      title ? `题型标题：${title}` : '',
+      originalQuestionNumber ? `原试卷题号：${originalQuestionNumber}` : '',
+    ].filter(Boolean)
+    const explanationParts = [
+      ...metadataLines,
+      fields.解析 || '',
+    ].filter(Boolean)
+
+    if (!type) {
+      warnings.push({
+        level: 'warning',
+        field: `question.${orderIndex}.type`,
+        message: `第 ${orderIndex} 题题型缺失或无法识别，请人工确认`,
+      })
+    }
+
+    if (!fields.题干) {
+      warnings.push({
+        level: 'warning',
+        field: `question.${orderIndex}.text`,
+        message: `第 ${orderIndex} 题题干为空，请人工补充`,
+      })
+    }
+
+    if (!answerText) {
+      warnings.push({
+        level: 'warning',
+        field: `question.${orderIndex}.answer`,
+        message: `第 ${orderIndex} 题未填写答案，请人工补充`,
+      })
+    }
+
+    if (score === null || Number.isNaN(score)) {
+      warnings.push({
+        level: 'warning',
+        field: `question.${orderIndex}.score`,
+        message: `第 ${orderIndex} 题分值缺失或格式异常，确认入库时将使用默认分值`,
+      })
+    }
+
+    return {
+      type: type || 'CHOICE',
+      text: fields.题干 || `第 ${orderIndex} 题`,
+      options: options && options.length > 0 ? options : null,
+      answer: type === 'CHOICE' || type === 'CLOZE'
+        ? normalizeChoiceAnswer(answerText)
+        : answerText || null,
+      score: score === null || Number.isNaN(score) ? null : score,
+      knowledgePoint: fields.知识点 || '未分类',
+      referenceAnswer: answerText,
+      explanation: explanationParts.join('\n\n'),
+      orderIndex: Number.isNaN(orderIndex) ? index + 1 : orderIndex,
+    }
+  })
+
+  if (draftQuestions.length === 0) {
+    warnings.push({
+      level: 'error',
+      field: 'questions',
+      message: '检测到严格题目块标记，但解析字段失败，请检查字段名或解析器规则。',
+    })
+  }
+
+  return {
+    draftMaterials: [],
+    draftQuestions,
+    warnings,
+  }
+}
+
 const stripQuestionText = (blockText) => {
   const withoutLabels = blockText
     .replace(/^(?:\s*\d{1,3}[\.\、．\)]\s*)/, '')
@@ -262,6 +479,10 @@ const parseImportText = (rawText) => {
         },
       ],
     }
+  }
+
+  if (text.includes('【题目开始】') || text.includes('【题目结束】')) {
+    return parseStrictChineseQuestionFormat(text)
   }
 
   const answerMap = extractAnswerMap(text)
@@ -1433,5 +1654,10 @@ router.post('/import/jobs/:id/confirm', requireTeacherOrAdmin, async (req, res) 
     })
   }
 })
+
+router.__private = {
+  parseImportText,
+  parseStrictChineseQuestionFormat,
+}
 
 module.exports = router

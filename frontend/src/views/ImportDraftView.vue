@@ -452,7 +452,7 @@ onMounted(loadJobs)
         <div>
           <p class="tag">Create</p>
           <h2>创建导入草稿</h2>
-          <p>支持 TXT、DOCX、文字型 PDF。解析不确定处会生成 warning。</p>
+          <p>支持 TXT、DOCX、文字型 PDF。严格中文题块格式会优先解析，解析不确定处会生成 warning。</p>
         </div>
 
         <div class="profile-actions">
@@ -504,7 +504,7 @@ onMounted(loadJobs)
           或粘贴原始文本
           <textarea
             v-model="form.rawText"
-            placeholder="支持题号、A/B/C/D 选项和答案区的基础规则解析"
+            placeholder="优先支持【题目开始】/【题目结束】严格格式，也兼容题号、A/B/C/D 选项和答案区的基础规则解析"
           ></textarea>
         </label>
 
