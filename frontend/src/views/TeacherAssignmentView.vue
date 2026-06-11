@@ -5,7 +5,7 @@ import { getSavedUser } from '../api/authApi'
 import { getExams } from '../api/examApi'
 import {
   createTeacherAssignment,
-  getTeacherAssignmentSubmissions,
+  getTeacherAssignmentAnalytics,
   getTeacherAssignments,
   getTeacherClassrooms,
 } from '../api/platformApi'
@@ -17,6 +17,7 @@ const exams = ref([])
 const assignments = ref([])
 const selectedAssignment = ref(null)
 const submissions = ref([])
+const selectedAnalytics = ref(null)
 const isLoading = ref(false)
 const isSubmitting = ref(false)
 const errorMessage = ref('')
@@ -34,6 +35,48 @@ const isTeacher = computed(() => currentUser.value?.role === 'TEACHER')
 const selectedExam = computed(() => {
   return exams.value.find((exam) => exam.id === form.value.examId) || null
 })
+
+const questionTypeNameMap = {
+  CHOICE: '选择题',
+  TRANSLATION: '翻译题',
+  ERROR_CORRECTION: '改错题',
+  WRITING: '写作题',
+  READING: '阅读理解',
+  CLOZE: '完形填空',
+}
+
+const formatScore = (score) => {
+  if (score === null || score === undefined) {
+    return '暂无'
+  }
+
+  const value = Number(score || 0)
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)))
+}
+
+const formatPercent = (value) => {
+  if (value === null || value === undefined) {
+    return '暂无'
+  }
+
+  return `${value}%`
+}
+
+const formatDateTime = (value) => {
+  return value ? new Date(value).toLocaleString() : '暂无'
+}
+
+const formatUsedTime = (seconds) => {
+  if (seconds === null || seconds === undefined) {
+    return '暂无'
+  }
+
+  const safeSeconds = Math.max(Number(seconds || 0), 0)
+  const minutes = Math.floor(safeSeconds / 60)
+  const restSeconds = safeSeconds % 60
+
+  return `${minutes}分${String(restSeconds).padStart(2, '0')}秒`
+}
 
 const loadData = async () => {
   if (!isTeacher.value) {
@@ -121,15 +164,17 @@ const handleCreateAssignment = async () => {
 const selectAssignment = async (assignment) => {
   selectedAssignment.value = assignment
   submissions.value = []
+  selectedAnalytics.value = null
   errorMessage.value = ''
 
   try {
-    const result = await getTeacherAssignmentSubmissions(assignment.id)
+    const result = await getTeacherAssignmentAnalytics(assignment.id)
+    selectedAnalytics.value = result
     selectedAssignment.value = result.assignment
-    submissions.value = result.submissions
+    submissions.value = result.students
   } catch (error) {
     console.error(error)
-    errorMessage.value = error.message || '提交情况加载失败'
+    errorMessage.value = error.message || '任务统计分析加载失败'
   }
 }
 
@@ -346,12 +391,65 @@ onMounted(loadData)
       <div v-if="selectedAssignment" class="learning-overview-card">
         <div class="section-title-row">
           <div>
-            <h2>{{ selectedAssignment.title }} 提交情况</h2>
+            <h2>{{ selectedAssignment.title }} 任务分析</h2>
             <p>{{ selectedAssignment.classroomName }}｜{{ selectedAssignment.examTitle }}</p>
           </div>
         </div>
 
+        <div v-if="selectedAnalytics?.summary" class="attempt-list">
+          <article class="attempt-card">
+            <div>
+              <h3>班级人数</h3>
+              <p>{{ selectedAnalytics.summary.classSize }} 人</p>
+            </div>
+          </article>
+
+          <article class="attempt-card">
+            <div>
+              <h3>提交情况</h3>
+              <p>
+                已提交 {{ selectedAnalytics.summary.submittedCount }} 人｜
+                未提交 {{ selectedAnalytics.summary.notSubmittedCount }} 人｜
+                提交率 {{ formatPercent(selectedAnalytics.summary.submissionRate) }}
+              </p>
+            </div>
+          </article>
+
+          <article class="attempt-card">
+            <div>
+              <h3>成绩概览</h3>
+              <p>
+                平均分 {{ formatScore(selectedAnalytics.summary.averageScore) }}｜
+                最高 {{ formatScore(selectedAnalytics.summary.highestScore) }}｜
+                最低 {{ formatScore(selectedAnalytics.summary.lowestScore) }}
+              </p>
+            </div>
+          </article>
+
+          <article class="attempt-card">
+            <div>
+              <h3>及格情况</h3>
+              <p>
+                及格线 {{ formatScore(selectedAnalytics.summary.passLine) }}｜
+                及格率 {{ formatPercent(selectedAnalytics.summary.passRate) }}
+              </p>
+            </div>
+          </article>
+        </div>
+
+        <div v-if="selectedAnalytics?.basicOverview" class="api-success">
+          <strong>基础学情概览：</strong>
+          {{ selectedAnalytics.basicOverview.overallSummary }}
+          <p
+            v-for="note in selectedAnalytics.basicOverview.notes"
+            :key="note"
+          >
+            {{ note }}
+          </p>
+        </div>
+
         <div v-if="submissions.length > 0" class="type-stat-table-wrap">
+          <h3>学生提交表</h3>
           <table class="type-stat-table">
             <thead>
               <tr>
@@ -359,6 +457,8 @@ onMounted(loadData)
                 <th>状态</th>
                 <th>得分</th>
                 <th>正确率</th>
+                <th>正确/错误</th>
+                <th>用时</th>
                 <th>提交时间</th>
               </tr>
             </thead>
@@ -373,10 +473,16 @@ onMounted(loadData)
                   <template v-else>暂无</template>
                 </td>
                 <td>
-                  {{ submission.accuracyRate === null ? '暂无' : `${submission.accuracyRate}%` }}
+                  {{ formatPercent(submission.accuracyRate) }}
                 </td>
                 <td>
-                  {{ submission.submittedAt ? new Date(submission.submittedAt).toLocaleString() : '暂无' }}
+                  {{ submission.status === 'SUBMITTED' ? `${submission.correctCount} / ${submission.wrongCount}` : '暂无' }}
+                </td>
+                <td>
+                  {{ formatUsedTime(submission.usedTime) }}
+                </td>
+                <td>
+                  {{ formatDateTime(submission.submittedAt) }}
                 </td>
               </tr>
             </tbody>
@@ -386,6 +492,92 @@ onMounted(loadData)
         <p v-else class="empty-text">
           暂无学生。
         </p>
+
+        <div
+          v-if="selectedAnalytics?.questionStats?.length"
+          class="type-stat-table-wrap"
+        >
+          <h3>题目正确率表</h3>
+          <table class="type-stat-table">
+            <thead>
+              <tr>
+                <th>题号</th>
+                <th>题型</th>
+                <th>分值</th>
+                <th>正确答案</th>
+                <th>作答人数</th>
+                <th>正确/错误</th>
+                <th>正确率</th>
+                <th>常见错误</th>
+                <th>高频错题</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="question in selectedAnalytics.questionStats"
+                :key="question.questionId"
+              >
+                <td>{{ question.orderIndex }}</td>
+                <td>{{ questionTypeNameMap[question.type] || question.type }}</td>
+                <td>{{ formatScore(question.score) }}</td>
+                <td>{{ question.manual_or_subjective ? '主观/人工判断' : question.correctAnswer }}</td>
+                <td>{{ question.answeredCount }}</td>
+                <td>
+                  {{ question.manual_or_subjective ? 'manual_or_subjective' : `${question.correctCount} / ${question.wrongCount}` }}
+                </td>
+                <td>
+                  {{ question.manual_or_subjective ? '主观题暂不统计' : formatPercent(question.correctRate) }}
+                </td>
+                <td>
+                  <template v-if="question.commonWrongAnswers?.length">
+                    {{ question.commonWrongAnswers.map((item) => `${item.answer}(${item.count})`).join('、') }}
+                  </template>
+                  <template v-else>暂无</template>
+                </td>
+                <td>{{ question.isHighFrequencyWrong ? '是' : '否' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div
+          v-if="selectedAnalytics?.typeStats?.length"
+          class="type-stat-table-wrap"
+        >
+          <h3>题型表现表</h3>
+          <table class="type-stat-table">
+            <thead>
+              <tr>
+                <th>题型</th>
+                <th>题目数</th>
+                <th>总分值</th>
+                <th>班级平均得分</th>
+                <th>得分率</th>
+                <th>错误率</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="typeStat in selectedAnalytics.typeStats" :key="typeStat.type">
+                <td>{{ questionTypeNameMap[typeStat.type] || typeStat.type }}</td>
+                <td>{{ typeStat.questionCount }}</td>
+                <td>{{ formatScore(typeStat.totalScore) }}</td>
+                <td>{{ formatScore(typeStat.classAverageScore) }}</td>
+                <td>{{ formatPercent(typeStat.scoreRate) }}</td>
+                <td>{{ formatPercent(typeStat.errorRate) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div
+          v-if="selectedAnalytics?.basicOverview?.priorityReviewQuestions?.length"
+          class="api-warning"
+        >
+          <strong>建议优先讲评：</strong>
+          第
+          {{ selectedAnalytics.basicOverview.priorityReviewQuestions.map((question) => question.orderIndex).join('、') }}
+          题。
+        </div>
       </div>
     </section>
   </div>

@@ -19,6 +19,31 @@ const successMessage = ref('')
 
 const isStudent = computed(() => currentUser.value?.role === 'STUDENT')
 
+const formatScore = (score) => {
+  if (score === null || score === undefined) {
+    return '暂无'
+  }
+
+  const value = Number(score || 0)
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)))
+}
+
+const formatUsedTime = (seconds) => {
+  if (seconds === null || seconds === undefined) {
+    return '暂无'
+  }
+
+  const safeSeconds = Math.max(Number(seconds || 0), 0)
+  const minutes = Math.floor(safeSeconds / 60)
+  const restSeconds = safeSeconds % 60
+
+  return `${minutes}分${String(restSeconds).padStart(2, '0')}秒`
+}
+
+const formatDateTime = (value) => {
+  return value ? new Date(value).toLocaleString() : '暂无'
+}
+
 const loadData = async () => {
   if (!isStudent.value) {
     return
@@ -169,8 +194,16 @@ onMounted(loadData)
               <p>
                 {{ assignment.latestAttempt ? '已提交' : '未提交' }}
                 <template v-if="assignment.latestAttempt">
-                  ｜得分 {{ assignment.latestAttempt.totalScore }}
+                  ｜得分 {{ formatScore(assignment.latestAttempt.totalScore) }} / {{ formatScore(assignment.examTotalScore) }}
                 </template>
+              </p>
+              <p v-if="assignment.latestAttempt">
+                正确 {{ assignment.latestAttempt.correctCount }} 题｜
+                错误 {{ assignment.latestAttempt.wrongCount }} 题｜
+                用时 {{ formatUsedTime(assignment.latestAttempt.usedTime) }}
+              </p>
+              <p v-if="assignment.latestAttempt">
+                提交时间：{{ formatDateTime(assignment.latestAttempt.submittedAt || assignment.latestAttempt.createdAt) }}
               </p>
             </div>
 

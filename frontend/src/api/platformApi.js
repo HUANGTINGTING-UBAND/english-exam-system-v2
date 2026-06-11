@@ -119,6 +119,14 @@ export const getTeacherAssignmentSubmissions = async (assignmentId) => {
   return parseResponse(response, '获取任务提交情况失败')
 }
 
+export const getTeacherAssignmentAnalytics = async (assignmentId) => {
+  const response = await fetch(`${API_BASE_URL}/teacher/assignments/${assignmentId}/analytics`, {
+    headers: getAuthHeaders(),
+  })
+
+  return parseResponse(response, '获取任务统计分析失败')
+}
+
 export const getStudentAssignments = async () => {
   const response = await fetch(`${API_BASE_URL}/student/assignments`, {
     headers: getAuthHeaders(),
