@@ -13,6 +13,7 @@ const classroomRoutes = require('./src/routes/classroomRoutes')
 const assignmentRoutes = require('./src/routes/assignmentRoutes')
 const importDraftRoutes = require('./src/routes/importDraftRoutes')
 const skillRoutes = require('./src/routes/skillRoutes')
+const studentReportRoutes = require('./src/routes/studentReportRoutes')
 
 const app = express()
 
@@ -92,6 +93,7 @@ app.get('/', (req, res) => {
       teacherClassrooms: '/api/teacher/classrooms',
       studentAssignments: '/api/student/assignments',
       attemptDetail: '/api/attempts/:attemptId/detail',
+      studentAttemptReport: '/api/student/attempts/:attemptId/report',
       wrongPractice: '/api/wrong-questions/:wrongQuestionId/practice',
       importDrafts: '/api/import/jobs',
       skills: '/api/skills',
@@ -119,6 +121,7 @@ const routeList = [
   ['assignmentRoutes', assignmentRoutes],
   ['importDraftRoutes', importDraftRoutes],
   ['skillRoutes', skillRoutes],
+  ['studentReportRoutes', studentReportRoutes],
 ]
 
 for (const [routeName, routeHandler] of routeList) {

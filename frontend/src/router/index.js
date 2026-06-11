@@ -16,6 +16,7 @@ import StudentAssignmentsView from '../views/StudentAssignmentsView.vue'
 import ImportDraftView from '../views/ImportDraftView.vue'
 import SkillManageView from '../views/SkillManageView.vue'
 import ExamEditView from '../views/ExamEditView.vue'
+import StudentAttemptReportView from '../views/StudentAttemptReportView.vue'
 import { getSavedUser } from '../api/authApi'
 
 const routes = [
@@ -47,6 +48,15 @@ const routes = [
     path: '/student/assignments',
     name: 'student-assignments',
     component: StudentAssignmentsView,
+    meta: {
+      requiresAuth: true,
+      roles: ['STUDENT'],
+    },
+  },
+  {
+    path: '/student/attempts/:attemptId/report',
+    name: 'student-attempt-report',
+    component: StudentAttemptReportView,
     meta: {
       requiresAuth: true,
       roles: ['STUDENT'],

@@ -222,6 +222,14 @@ onMounted(loadData)
               >
                 查看结果
               </RouterLink>
+
+              <RouterLink
+                v-if="assignment.latestAttempt"
+                class="secondary-btn"
+                :to="`/student/attempts/${assignment.latestAttempt.id}/report`"
+              >
+                查看学习报告
+              </RouterLink>
             </div>
           </article>
         </div>

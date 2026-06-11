@@ -115,6 +115,16 @@ export const getAttemptDetail = async (attemptId) => {
   return parseResponse(response, '获取考试结果详情失败')
 }
 
+export const getStudentAttemptReport = async (attemptId) => {
+  const response = await fetch(`${API_BASE_URL}/student/attempts/${attemptId}/report`, {
+    headers: {
+      ...getAuthHeaders(),
+    },
+  })
+
+  return parseResponse(response, '获取个人学习报告失败')
+}
+
 export const deleteAttemptHistory = async (attemptId) => {
   const response = await fetch(`${API_BASE_URL}/attempts/${attemptId}`, {
     method: 'DELETE',

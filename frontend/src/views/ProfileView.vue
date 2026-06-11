@@ -536,6 +536,14 @@ onMounted(() => {
           >
             查看最近考试详情
           </RouterLink>
+
+          <RouterLink
+            v-if="currentUser.role === 'STUDENT'"
+            class="secondary-btn"
+            :to="`/student/attempts/${latestAttempt.id}/report`"
+          >
+            查看学习报告
+          </RouterLink>
         </div>
       </div>
 
@@ -585,6 +593,14 @@ onMounted(() => {
                   :to="`/attempts/${attempt.id}`"
                 >
                   查看详情
+                </RouterLink>
+
+                <RouterLink
+                  v-if="currentUser.role === 'STUDENT'"
+                  class="secondary-btn"
+                  :to="`/student/attempts/${attempt.id}/report`"
+                >
+                  学习报告
                 </RouterLink>
 
                 <button

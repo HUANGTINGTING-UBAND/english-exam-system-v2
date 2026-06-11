@@ -336,6 +336,13 @@ onMounted(() => {
       <RouterLink class="secondary-btn" to="/profile">
        查看错题本
       </RouterLink>
+
+      <RouterLink
+        class="secondary-btn"
+        :to="`/student/attempts/${route.params.attemptId}/report`"
+      >
+        查看学习报告
+      </RouterLink>
     </div>
 
     <div v-if="isLoading" class="loading-box">
