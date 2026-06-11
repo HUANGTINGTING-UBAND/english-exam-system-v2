@@ -61,7 +61,11 @@ export const getExams = async (params = {}) => {
   }
 
   const query = searchParams.toString()
-  const response = await fetch(`${API_BASE_URL}/exams${query ? `?${query}` : ''}`)
+  const response = await fetch(`${API_BASE_URL}/exams${query ? `?${query}` : ''}`, {
+    headers: {
+      ...getAuthHeaders(),
+    },
+  })
 
   return parseResponse(response, '获取试卷列表失败')
 }

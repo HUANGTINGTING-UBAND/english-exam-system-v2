@@ -175,6 +175,28 @@ export const getImportJob = async (jobId) => {
   return parseResponse(response, '获取导入草稿详情失败')
 }
 
+export const validateImportJob = async (jobId) => {
+  const response = await fetch(`${API_BASE_URL}/import/jobs/${jobId}/validate`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  })
+
+  return parseResponse(response, '导入草稿质量检查失败')
+}
+
+export const createImportDraftQuestion = async (jobId, questionData) => {
+  const response = await fetch(`${API_BASE_URL}/import/jobs/${jobId}/draft-questions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(questionData),
+  })
+
+  return parseResponse(response, '新增草稿题目失败')
+}
+
 export const updateImportDraftQuestion = async (jobId, questionId, questionData) => {
   const response = await fetch(`${API_BASE_URL}/import/jobs/${jobId}/draft-questions/${questionId}`, {
     method: 'PATCH',
@@ -188,6 +210,28 @@ export const updateImportDraftQuestion = async (jobId, questionId, questionData)
   return parseResponse(response, '更新草稿题目失败')
 }
 
+export const deleteImportDraftQuestion = async (jobId, questionId) => {
+  const response = await fetch(`${API_BASE_URL}/import/jobs/${jobId}/draft-questions/${questionId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  })
+
+  return parseResponse(response, '删除草稿题目失败')
+}
+
+export const createImportDraftMaterial = async (jobId, materialData) => {
+  const response = await fetch(`${API_BASE_URL}/import/jobs/${jobId}/draft-materials`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(materialData),
+  })
+
+  return parseResponse(response, '新增草稿材料失败')
+}
+
 export const updateImportDraftMaterial = async (jobId, materialId, materialData) => {
   const response = await fetch(`${API_BASE_URL}/import/jobs/${jobId}/draft-materials/${materialId}`, {
     method: 'PATCH',
@@ -199,6 +243,15 @@ export const updateImportDraftMaterial = async (jobId, materialId, materialData)
   })
 
   return parseResponse(response, '更新草稿材料失败')
+}
+
+export const deleteImportDraftMaterial = async (jobId, materialId) => {
+  const response = await fetch(`${API_BASE_URL}/import/jobs/${jobId}/draft-materials/${materialId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  })
+
+  return parseResponse(response, '删除草稿材料失败')
 }
 
 export const resolveImportWarning = async (jobId, warningId) => {

@@ -84,6 +84,30 @@ enum ResourceType {
   OTHER
 }
 
+enum ExamSourceType {
+  PLATFORM_STANDARD
+  TEACHER_CUSTOM
+}
+
+enum ExamVisibility {
+  PUBLIC
+  PRIVATE
+  CLASS_ONLY
+}
+
+enum ExamPublishStatus {
+  DRAFT
+  READY
+  PUBLISHED
+  ARCHIVED
+}
+
+enum DiagnosisQualityLevel {
+  BASIC
+  STANDARD
+  DETAILED
+}
+
 model User {
   id           String      @id @default(cuid())
   username     String      @unique
@@ -96,6 +120,7 @@ model User {
 
   attempts       ExamAttempt[]
   wrongQuestions WrongQuestion[]
+  createdExams              Exam[]               @relation("ExamCreator")
   teachingClassrooms       Classroom[]          @relation("ClassroomTeacher")
   classMemberships         ClassStudent[]       @relation("ClassStudentStudent")
   teachingAssignments      Assignment[]         @relation("AssignmentTeacher")
@@ -109,21 +134,35 @@ model User {
 
 model Exam {
   id          String     @id @default(cuid())
+  createdById String?
+  importJobId String?
   title       String
   gradeLevel  GradeLevel
   description String?
   timeLimit   Int
   totalScore  Float
   isPublished Boolean    @default(false)
+  sourceType  ExamSourceType @default(PLATFORM_STANDARD)
+  visibility  ExamVisibility @default(PUBLIC)
+  publishStatus ExamPublishStatus @default(READY)
+  diagnosisQuality DiagnosisQualityLevel @default(BASIC)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
+  creator        User?      @relation("ExamCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  importJob      ImportJob? @relation(fields: [importJobId], references: [id], onDelete: SetNull)
   questions      Question[]
   materials      QuestionMaterial[]
   attempts       ExamAttempt[]
   assignments    Assignment[]
   wrongQuestions WrongQuestion[]
   diagnosisReports DiagnosisReport[]
+
+  @@index([createdById])
+  @@index([importJobId])
+  @@index([sourceType])
+  @@index([visibility])
+  @@index([publishStatus])
 }
 
 model QuestionMaterial {
@@ -312,6 +351,7 @@ model ImportJob {
   draftQuestions ImportDraftQuestion[]
   draftMaterials ImportDraftMaterial[]
   warnings       ImportWarning[]
+  generatedExams Exam[]
 
   @@index([createdById])
   @@index([status])

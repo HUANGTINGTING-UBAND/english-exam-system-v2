@@ -55,7 +55,16 @@ const loadData = async () => {
       form.value.classroomId = classrooms.value[0].id
     }
 
-    if (!form.value.examId && exams.value[0]) {
+    const queryExamId = route.query.examId
+    const queryExam = queryExamId
+      ? exams.value.find((exam) => exam.id === queryExamId)
+      : null
+
+    if (queryExam) {
+      form.value.examId = queryExam.id
+      form.value.title = form.value.title || queryExam.title
+      successMessage.value = `已选择刚生成的试卷：${queryExam.title}`
+    } else if (!form.value.examId && exams.value[0]) {
       form.value.examId = exams.value[0].id
     }
 
@@ -131,6 +140,21 @@ watch(
     const assignment = assignments.value.find((item) => item.id === assignmentId)
     if (assignment) {
       await selectAssignment(assignment)
+    }
+  }
+)
+
+watch(
+  () => route.query.examId,
+  (examId) => {
+    if (!examId || exams.value.length === 0) {
+      return
+    }
+
+    const exam = exams.value.find((item) => item.id === examId)
+    if (exam) {
+      form.value.examId = exam.id
+      form.value.title = form.value.title || exam.title
     }
   }
 )

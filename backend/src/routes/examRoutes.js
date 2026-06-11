@@ -1,6 +1,6 @@
 const express = require('express')
 const prisma = require('../lib/prisma')
-const { requireAuth } = require('../middlewares/authMiddleware')
+const { optionalAuth, requireAuth } = require('../middlewares/authMiddleware')
 
 const router = express.Router()
 const examCategoryGroups = {
@@ -93,6 +93,14 @@ const normalizeChoiceAnswer = (answer) => {
   return null
 }
 
+const getSafePublishStatus = (exam) => {
+  if (exam.isPublished) {
+    return 'PUBLISHED'
+  }
+
+  return exam.publishStatus || 'READY'
+}
+
 const getSelectedIndex = (answer) => {
   if (!answer) {
     return null
@@ -169,14 +177,24 @@ const normalizeSubmittedAnswers = (answers) => {
   return []
 }
 
-router.get('/exams', async (req, res) => {
+router.get('/exams', optionalAuth, async (req, res) => {
   try {
     const { grade, group } = req.query
     const gradeWhere = buildExamGradeWhere({ grade, group })
+    const userExamWhere =
+      req.user?.role === 'TEACHER'
+        ? {
+            createdById: req.user.id,
+          }
+        : req.user?.role === 'ADMIN'
+          ? {}
+          : {
+              isPublished: true,
+            }
 
     const exams = await prisma.exam.findMany({
       where: {
-       isPublished: true,
+        ...userExamWhere,
         ...(gradeWhere
          ? {
            gradeLevel: gradeWhere,
@@ -191,6 +209,18 @@ router.get('/exams', async (req, res) => {
           select: {
             id: true,
             score: true,
+          },
+        },
+        materials: {
+          select: {
+            id: true,
+          },
+        },
+        creator: {
+          select: {
+            username: true,
+            nickname: true,
+            role: true,
           },
         },
       },
@@ -209,6 +239,14 @@ router.get('/exams', async (req, res) => {
         timeLimit: exam.timeLimit,
         totalScore: realTotalScore || exam.totalScore,
         isPublished: exam.isPublished,
+        sourceType: exam.sourceType,
+        visibility: exam.visibility,
+        publishStatus: getSafePublishStatus(exam),
+        diagnosisQuality: exam.diagnosisQuality,
+        materialCount: exam.materials.length,
+        importJobId: exam.importJobId,
+        creatorName: exam.creator?.nickname || exam.creator?.username || '',
+        creatorRole: exam.creator?.role || '',
         questionCount: exam.questions.length,
         createdAt: exam.createdAt,
         updatedAt: exam.updatedAt,
@@ -272,6 +310,12 @@ router.get('/exams/:examId', async (req, res) => {
         timeLimit: exam.timeLimit,
         totalScore: realTotalScore || exam.totalScore,
         isPublished: exam.isPublished,
+        sourceType: exam.sourceType,
+        visibility: exam.visibility,
+        publishStatus: getSafePublishStatus(exam),
+        diagnosisQuality: exam.diagnosisQuality,
+        materialCount: exam.materials.length,
+        importJobId: exam.importJobId,
         materials: exam.materials,
         createdAt: exam.createdAt,
         updatedAt: exam.updatedAt,

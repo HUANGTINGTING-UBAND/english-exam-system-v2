@@ -404,6 +404,148 @@ const getImportJobForUser = async (req, id, include = {}) => {
   })
 }
 
+const getFullImportJobForUser = async (req, id) => {
+  return getImportJobForUser(req, id, {
+    draftMaterials: {
+      orderBy: {
+        orderIndex: 'asc',
+      },
+      include: {
+        _count: {
+          select: {
+            questions: true,
+          },
+        },
+      },
+    },
+    draftQuestions: {
+      orderBy: {
+        orderIndex: 'asc',
+      },
+      include: {
+        material: true,
+      },
+    },
+    warnings: {
+      orderBy: {
+        createdAt: 'asc',
+      },
+    },
+  })
+}
+
+const buildImportValidation = (job) => {
+  const errors = []
+  const warnings = []
+  const draftQuestions = job?.draftQuestions || []
+  const draftMaterials = job?.draftMaterials || []
+  const materialIds = new Set(draftMaterials.map((material) => material.id))
+  const orderIndexCount = new Map()
+
+  if (draftQuestions.length === 0) {
+    errors.push({
+      code: 'NO_DRAFT_QUESTIONS',
+      message: '至少需要 1 道草稿题目才能确认入库',
+    })
+  }
+
+  for (const warning of job?.warnings || []) {
+    if (warning.level === 'error' && !warning.isResolved) {
+      errors.push({
+        code: 'UNRESOLVED_ERROR_WARNING',
+        message: `存在未处理的严重 warning：${warning.message}`,
+      })
+    }
+  }
+
+  for (const question of draftQuestions) {
+    const type = normalizeEnum(question.type, questionTypes, null)
+    const orderIndex = Number(question.orderIndex || 0)
+    orderIndexCount.set(orderIndex, (orderIndexCount.get(orderIndex) || 0) + 1)
+
+    if (!type) {
+      errors.push({
+        code: 'MISSING_QUESTION_TYPE',
+        questionId: question.id,
+        message: `第 ${question.orderIndex} 题题型缺失`,
+      })
+    }
+
+    if (type === 'CHOICE') {
+      const options = Array.isArray(question.options) ? question.options : []
+
+      if (options.length === 0) {
+        errors.push({
+          code: 'CHOICE_WITHOUT_OPTIONS',
+          questionId: question.id,
+          message: `第 ${question.orderIndex} 题是选择题，但没有选项`,
+        })
+      }
+
+      if (question.answer === null || question.answer === undefined || question.answer === '') {
+        warnings.push({
+          code: 'CHOICE_WITHOUT_ANSWER',
+          questionId: question.id,
+          message: `第 ${question.orderIndex} 题未填写客观题答案`,
+        })
+      }
+    }
+
+    if (question.score === null || question.score === undefined || Number.isNaN(Number(question.score))) {
+      warnings.push({
+        code: 'MISSING_SCORE',
+        questionId: question.id,
+        message: `第 ${question.orderIndex} 题缺少分值，入库时将使用默认分值`,
+      })
+    }
+
+    if (question.materialId && !materialIds.has(question.materialId)) {
+      errors.push({
+        code: 'QUESTION_BOUND_TO_MISSING_MATERIAL',
+        questionId: question.id,
+        message: `第 ${question.orderIndex} 题绑定了不存在的草稿材料`,
+      })
+    }
+
+    if (!question.materialId && draftMaterials.length > 0) {
+      warnings.push({
+        code: 'QUESTION_WITHOUT_MATERIAL',
+        questionId: question.id,
+        message: `第 ${question.orderIndex} 题未绑定材料，请确认是否符合预期`,
+      })
+    }
+  }
+
+  for (const [orderIndex, count] of orderIndexCount.entries()) {
+    if (orderIndex && count > 1) {
+      errors.push({
+        code: 'DUPLICATED_ORDER_INDEX',
+        message: `题号/orderIndex ${orderIndex} 重复`,
+      })
+    }
+  }
+
+  for (const material of draftMaterials) {
+    const boundQuestionCount = draftQuestions.filter((question) => {
+      return question.materialId === material.id
+    }).length
+
+    if (boundQuestionCount === 0) {
+      warnings.push({
+        code: 'UNUSED_MATERIAL',
+        materialId: material.id,
+        message: `材料「${material.title || `材料 ${material.orderIndex}`}」没有绑定任何题目`,
+      })
+    }
+  }
+
+  return {
+    canConfirm: errors.length === 0,
+    errors,
+    warnings,
+  }
+}
+
 const createImportJobWithDrafts = async ({
   req,
   title,
@@ -600,6 +742,13 @@ router.get('/import/jobs/:id', requireTeacherOrAdmin, async (req, res) => {
         orderBy: {
           orderIndex: 'asc',
         },
+        include: {
+          _count: {
+            select: {
+              questions: true,
+            },
+          },
+        },
       },
       draftQuestions: {
         orderBy: {
@@ -636,6 +785,78 @@ router.get('/import/jobs/:id', requireTeacherOrAdmin, async (req, res) => {
   }
 })
 
+router.post('/import/jobs/:id/draft-questions', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { id } = req.params
+    const job = await getImportJobForUser(req, id)
+
+    if (!job) {
+      return res.status(404).json({
+        message: '导入草稿不存在或无权访问',
+      })
+    }
+
+    if (req.body.materialId) {
+      const material = await prisma.importDraftMaterial.findFirst({
+        where: {
+          id: req.body.materialId,
+          importJobId: id,
+        },
+      })
+
+      if (!material) {
+        return res.status(400).json({
+          message: '绑定的草稿材料不存在或不属于当前导入任务',
+        })
+      }
+    }
+
+    const questionCount = await prisma.importDraftQuestion.count({
+      where: {
+        importJobId: id,
+      },
+    })
+
+    const type = normalizeEnum(req.body.type, questionTypes, 'CHOICE')
+    const createdQuestion = await prisma.importDraftQuestion.create({
+      data: {
+        importJobId: id,
+        materialId: req.body.materialId || null,
+        type,
+        text: String(req.body.text || `第 ${questionCount + 1} 题`),
+        options: Array.isArray(req.body.options) ? req.body.options : parseJsonValue(req.body.options, null),
+        answer:
+          req.body.answer === undefined || req.body.answer === ''
+            ? null
+            : parseJsonValue(req.body.answer),
+        score:
+          req.body.score === undefined || req.body.score === ''
+            ? null
+            : Number(req.body.score),
+        knowledgePoint: req.body.knowledgePoint || '未分类',
+        referenceAnswer: req.body.referenceAnswer || '',
+        explanation: req.body.explanation || '',
+        orderIndex: Number(req.body.orderIndex || questionCount + 1),
+      },
+      include: {
+        material: true,
+      },
+    })
+
+    res.status(201).json({
+      message: '草稿题目创建成功',
+      data: createdQuestion,
+    })
+  } catch (error) {
+    console.error('Create draft question error:', error)
+
+    res.status(500).json({
+      message: '草稿题目创建失败',
+      error: error.message,
+    })
+  }
+})
+
 router.patch('/import/jobs/:id/draft-questions/:questionId', requireTeacherOrAdmin, async (req, res) => {
   try {
     const { id, questionId } = req.params
@@ -658,6 +879,21 @@ router.patch('/import/jobs/:id/draft-questions/:questionId', requireTeacherOrAdm
       return res.status(404).json({
         message: '草稿题目不存在',
       })
+    }
+
+    if (req.body.materialId) {
+      const material = await prisma.importDraftMaterial.findFirst({
+        where: {
+          id: req.body.materialId,
+          importJobId: id,
+        },
+      })
+
+      if (!material) {
+        return res.status(400).json({
+          message: '绑定的草稿材料不存在或不属于当前导入任务',
+        })
+      }
     }
 
     const updatedQuestion = await prisma.importDraftQuestion.update({
@@ -713,6 +949,100 @@ router.patch('/import/jobs/:id/draft-questions/:questionId', requireTeacherOrAdm
 
     res.status(500).json({
       message: '草稿题目更新失败',
+      error: error.message,
+    })
+  }
+})
+
+router.delete('/import/jobs/:id/draft-questions/:questionId', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { id, questionId } = req.params
+    const job = await getImportJobForUser(req, id)
+
+    if (!job) {
+      return res.status(404).json({
+        message: '导入草稿不存在或无权访问',
+      })
+    }
+
+    const existingQuestion = await prisma.importDraftQuestion.findFirst({
+      where: {
+        id: questionId,
+        importJobId: id,
+      },
+    })
+
+    if (!existingQuestion) {
+      return res.status(404).json({
+        message: '草稿题目不存在',
+      })
+    }
+
+    await prisma.importDraftQuestion.delete({
+      where: {
+        id: questionId,
+      },
+    })
+
+    res.json({
+      message: '草稿题目删除成功',
+      data: existingQuestion,
+    })
+  } catch (error) {
+    console.error('Delete draft question error:', error)
+
+    res.status(500).json({
+      message: '草稿题目删除失败',
+      error: error.message,
+    })
+  }
+})
+
+router.post('/import/jobs/:id/draft-materials', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { id } = req.params
+    const job = await getImportJobForUser(req, id)
+
+    if (!job) {
+      return res.status(404).json({
+        message: '导入草稿不存在或无权访问',
+      })
+    }
+
+    const materialCount = await prisma.importDraftMaterial.count({
+      where: {
+        importJobId: id,
+      },
+    })
+
+    const createdMaterial = await prisma.importDraftMaterial.create({
+      data: {
+        importJobId: id,
+        type: normalizeEnum(req.body.type, materialTypes, 'READING'),
+        title: req.body.title ? String(req.body.title).trim() : `材料 ${materialCount + 1}`,
+        content: String(req.body.content || ''),
+        audioUrl: req.body.audioUrl ? String(req.body.audioUrl).trim() : '',
+        transcript: req.body.transcript ? String(req.body.transcript) : '',
+        orderIndex: Number(req.body.orderIndex || materialCount + 1),
+      },
+      include: {
+        _count: {
+          select: {
+            questions: true,
+          },
+        },
+      },
+    })
+
+    res.status(201).json({
+      message: '草稿材料创建成功',
+      data: createdMaterial,
+    })
+  } catch (error) {
+    console.error('Create draft material error:', error)
+
+    res.status(500).json({
+      message: '草稿材料创建失败',
       error: error.message,
     })
   }
@@ -784,6 +1114,67 @@ router.patch('/import/jobs/:id/draft-materials/:materialId', requireTeacherOrAdm
   }
 })
 
+router.delete('/import/jobs/:id/draft-materials/:materialId', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { id, materialId } = req.params
+    const force = req.query.force === 'true'
+    const job = await getImportJobForUser(req, id)
+
+    if (!job) {
+      return res.status(404).json({
+        message: '导入草稿不存在或无权访问',
+      })
+    }
+
+    const existingMaterial = await prisma.importDraftMaterial.findFirst({
+      where: {
+        id: materialId,
+        importJobId: id,
+      },
+      include: {
+        _count: {
+          select: {
+            questions: true,
+          },
+        },
+      },
+    })
+
+    if (!existingMaterial) {
+      return res.status(404).json({
+        message: '草稿材料不存在',
+      })
+    }
+
+    if (existingMaterial._count.questions > 0 && !force) {
+      return res.status(400).json({
+        message: `该材料已有 ${existingMaterial._count.questions} 道题绑定，请先调整题目绑定后再删除`,
+        data: {
+          boundQuestionCount: existingMaterial._count.questions,
+        },
+      })
+    }
+
+    await prisma.importDraftMaterial.delete({
+      where: {
+        id: materialId,
+      },
+    })
+
+    res.json({
+      message: '草稿材料删除成功',
+      data: existingMaterial,
+    })
+  } catch (error) {
+    console.error('Delete draft material error:', error)
+
+    res.status(500).json({
+      message: '草稿材料删除失败',
+      error: error.message,
+    })
+  }
+})
+
 router.patch('/import/jobs/:id/warnings/:warningId/resolve', requireTeacherOrAdmin, async (req, res) => {
   try {
     const { id, warningId } = req.params
@@ -832,21 +1223,10 @@ router.patch('/import/jobs/:id/warnings/:warningId/resolve', requireTeacherOrAdm
   }
 })
 
-router.post('/import/jobs/:id/confirm', requireTeacherOrAdmin, async (req, res) => {
+router.post('/import/jobs/:id/validate', requireTeacherOrAdmin, async (req, res) => {
   try {
     const { id } = req.params
-    const job = await getImportJobForUser(req, id, {
-      draftMaterials: {
-        orderBy: {
-          orderIndex: 'asc',
-        },
-      },
-      draftQuestions: {
-        orderBy: {
-          orderIndex: 'asc',
-        },
-      },
-    })
+    const job = await getFullImportJobForUser(req, id)
 
     if (!job) {
       return res.status(404).json({
@@ -854,9 +1234,39 @@ router.post('/import/jobs/:id/confirm', requireTeacherOrAdmin, async (req, res) 
       })
     }
 
-    if (!job.draftQuestions || job.draftQuestions.length === 0) {
+    const validation = buildImportValidation(job)
+
+    res.json({
+      message: validation.canConfirm ? '导入草稿可以确认入库' : '导入草稿存在阻塞问题',
+      data: validation,
+    })
+  } catch (error) {
+    console.error('Validate import job error:', error)
+
+    res.status(500).json({
+      message: '导入草稿质量检查失败',
+      error: error.message,
+    })
+  }
+})
+
+router.post('/import/jobs/:id/confirm', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { id } = req.params
+    const job = await getFullImportJobForUser(req, id)
+
+    if (!job) {
+      return res.status(404).json({
+        message: '导入草稿不存在或无权访问',
+      })
+    }
+
+    const validation = buildImportValidation(job)
+
+    if (!validation.canConfirm) {
       return res.status(400).json({
-        message: '至少需要 1 道草稿题目才能确认入库',
+        message: '导入草稿存在阻塞问题，请修复后再确认入库',
+        data: validation,
       })
     }
 
@@ -911,9 +1321,18 @@ router.post('/import/jobs/:id/confirm', requireTeacherOrAdmin, async (req, res) 
       const totalScore = normalizedQuestions.reduce((sum, question) => {
         return sum + Number(question.score || 0)
       }, 0)
+      const finalIsPublished =
+        req.user.role === 'ADMIN' && req.body.isPublished === true
+      const finalPublishStatus = finalIsPublished
+        ? 'PUBLISHED'
+        : req.user.role === 'ADMIN'
+          ? 'READY'
+          : 'DRAFT'
 
       const exam = await tx.exam.create({
         data: {
+          createdById: req.user.id,
+          importJobId: job.id,
           title: req.body.title ? String(req.body.title).trim() : job.title,
           gradeLevel: normalizeEnum(req.body.gradeLevel || job.gradeLevel, gradeLevels, 'GENERAL'),
           description:
@@ -921,10 +1340,17 @@ router.post('/import/jobs/:id/confirm', requireTeacherOrAdmin, async (req, res) 
             `由导入草稿 ${job.title} 确认入库生成。`,
           timeLimit: Number(req.body.timeLimit || 3600),
           totalScore,
-          isPublished:
-            req.body.isPublished === undefined
-              ? req.user.role === 'ADMIN'
-              : Boolean(req.body.isPublished),
+          isPublished: finalIsPublished,
+          sourceType:
+            req.user.role === 'ADMIN'
+              ? 'PLATFORM_STANDARD'
+              : 'TEACHER_CUSTOM',
+          visibility:
+            req.user.role === 'ADMIN'
+              ? 'PUBLIC'
+              : 'PRIVATE',
+          publishStatus: finalPublishStatus,
+          diagnosisQuality: 'BASIC',
         },
       })
 
@@ -983,6 +1409,7 @@ router.post('/import/jobs/:id/confirm', requireTeacherOrAdmin, async (req, res) 
         questionCount: createdQuestions.length,
         materialCount: materialIdMap.size,
         warningCount: warningData.length,
+        validation,
       }
     })
 
@@ -994,6 +1421,7 @@ router.post('/import/jobs/:id/confirm', requireTeacherOrAdmin, async (req, res) 
         questionCount: result.questionCount,
         materialCount: result.materialCount,
         warningCount: result.warningCount,
+        validation: result.validation,
       },
     })
   } catch (error) {

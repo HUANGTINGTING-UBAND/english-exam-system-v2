@@ -4,12 +4,17 @@ import { RouterLink, useRouter } from 'vue-router'
 import { getSavedUser } from '../api/authApi'
 import {
   confirmImportJob,
+  createImportDraftMaterial,
+  createImportDraftQuestion,
   createImportJob,
+  deleteImportDraftMaterial,
+  deleteImportDraftQuestion,
   getImportJob,
   getImportJobs,
   resolveImportWarning,
   updateImportDraftMaterial,
   updateImportDraftQuestion,
+  validateImportJob,
 } from '../api/platformApi'
 
 const router = useRouter()
@@ -22,6 +27,7 @@ const isSubmitting = ref(false)
 const isConfirming = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+const validateResult = ref(null)
 
 const form = ref({
   title: '',
@@ -34,7 +40,7 @@ const confirmForm = ref({
   title: '',
   gradeLevel: '',
   timeLimit: 3600,
-  isPublished: true,
+  isPublished: false,
 })
 
 const questionForm = ref(null)
@@ -47,6 +53,11 @@ const canManageDrafts = computed(() => {
 const unresolvedWarnings = computed(() => {
   return selectedJob.value?.warnings?.filter((warning) => !warning.isResolved) || []
 })
+
+const getMaterialTitle = (materialId) => {
+  const material = selectedJob.value?.draftMaterials?.find((item) => item.id === materialId)
+  return material?.title || (material ? `材料 ${material.orderIndex}` : '未绑定材料')
+}
 
 const loadJobs = async () => {
   if (!canManageDrafts.value) {
@@ -72,6 +83,7 @@ const reloadSelectedJob = async () => {
   }
 
   selectedJob.value = await getImportJob(selectedJob.value.id)
+  validateResult.value = null
 }
 
 const handleFileChange = (event) => {
@@ -119,6 +131,7 @@ const selectJob = async (job) => {
   successMessage.value = ''
   questionForm.value = null
   materialForm.value = null
+  validateResult.value = null
 
   try {
     selectedJob.value = await getImportJob(job.id)
@@ -130,9 +143,29 @@ const selectJob = async (job) => {
   }
 }
 
+const startCreateQuestion = () => {
+  const nextOrderIndex = (selectedJob.value?.draftQuestions?.length || 0) + 1
+
+  questionForm.value = {
+    isNew: true,
+    id: '',
+    materialId: '',
+    type: 'CHOICE',
+    text: '',
+    optionsText: '',
+    answerText: '',
+    score: 2,
+    knowledgePoint: '未分类',
+    referenceAnswer: '',
+    explanation: '',
+    orderIndex: nextOrderIndex,
+  }
+}
+
 const startEditQuestion = (question) => {
   questionForm.value = {
     ...question,
+    isNew: false,
     optionsText: Array.isArray(question.options) ? question.options.join('\n') : '',
     answerText:
       question.answer === null || question.answer === undefined
@@ -142,7 +175,7 @@ const startEditQuestion = (question) => {
 }
 
 const saveQuestion = async () => {
-  if (!selectedJob.value?.id || !questionForm.value?.id) {
+  if (!selectedJob.value?.id || !questionForm.value) {
     return
   }
 
@@ -155,7 +188,7 @@ const saveQuestion = async () => {
       .map((item) => item.trim())
       .filter(Boolean)
 
-    await updateImportDraftQuestion(selectedJob.value.id, questionForm.value.id, {
+    const payload = {
       materialId: questionForm.value.materialId || null,
       type: questionForm.value.type,
       text: questionForm.value.text,
@@ -166,9 +199,15 @@ const saveQuestion = async () => {
       referenceAnswer: questionForm.value.referenceAnswer,
       explanation: questionForm.value.explanation,
       orderIndex: questionForm.value.orderIndex,
-    })
+    }
 
-    successMessage.value = '草稿题目已保存'
+    if (questionForm.value.isNew) {
+      await createImportDraftQuestion(selectedJob.value.id, payload)
+    } else {
+      await updateImportDraftQuestion(selectedJob.value.id, questionForm.value.id, payload)
+    }
+
+    successMessage.value = questionForm.value.isNew ? '草稿题目已新增' : '草稿题目已保存'
     questionForm.value = null
     await reloadSelectedJob()
   } catch (error) {
@@ -177,14 +216,14 @@ const saveQuestion = async () => {
   }
 }
 
-const startEditMaterial = (material) => {
-  materialForm.value = {
-    ...material,
+const deleteQuestion = async (question) => {
+  if (!selectedJob.value?.id) {
+    return
   }
-}
 
-const saveMaterial = async () => {
-  if (!selectedJob.value?.id || !materialForm.value?.id) {
+  const confirmed = window.confirm(`确认删除第 ${question.orderIndex} 题吗？此操作不可恢复。`)
+
+  if (!confirmed) {
     return
   }
 
@@ -192,21 +231,101 @@ const saveMaterial = async () => {
   successMessage.value = ''
 
   try {
-    await updateImportDraftMaterial(selectedJob.value.id, materialForm.value.id, {
+    await deleteImportDraftQuestion(selectedJob.value.id, question.id)
+    successMessage.value = '草稿题目已删除'
+    await reloadSelectedJob()
+  } catch (error) {
+    console.error(error)
+    errorMessage.value = error.message || '草稿题目删除失败'
+  }
+}
+
+const startCreateMaterial = () => {
+  const nextOrderIndex = (selectedJob.value?.draftMaterials?.length || 0) + 1
+
+  materialForm.value = {
+    isNew: true,
+    id: '',
+    type: 'READING',
+    title: `材料 ${nextOrderIndex}`,
+    content: '',
+    audioUrl: '',
+    transcript: '',
+    orderIndex: nextOrderIndex,
+  }
+}
+
+const startEditMaterial = (material) => {
+  materialForm.value = {
+    ...material,
+    isNew: false,
+  }
+}
+
+const saveMaterial = async () => {
+  if (!selectedJob.value?.id || !materialForm.value) {
+    return
+  }
+
+  errorMessage.value = ''
+  successMessage.value = ''
+
+  try {
+    const payload = {
       type: materialForm.value.type,
       title: materialForm.value.title,
       content: materialForm.value.content,
       audioUrl: materialForm.value.audioUrl,
       transcript: materialForm.value.transcript,
       orderIndex: materialForm.value.orderIndex,
-    })
+    }
 
-    successMessage.value = '草稿材料已保存'
+    if (materialForm.value.isNew) {
+      await createImportDraftMaterial(selectedJob.value.id, payload)
+    } else {
+      await updateImportDraftMaterial(selectedJob.value.id, materialForm.value.id, payload)
+    }
+
+    successMessage.value = materialForm.value.isNew ? '草稿材料已新增' : '草稿材料已保存'
     materialForm.value = null
     await reloadSelectedJob()
   } catch (error) {
     console.error(error)
     errorMessage.value = error.message || '草稿材料保存失败'
+  }
+}
+
+const deleteMaterial = async (material) => {
+  if (!selectedJob.value?.id) {
+    return
+  }
+
+  const boundQuestionCount = material._count?.questions || 0
+  const message = boundQuestionCount > 0
+    ? `材料「${material.title || `材料 ${material.orderIndex}`}」已有 ${boundQuestionCount} 道题绑定。请先调整题目绑定后再删除。`
+    : `确认删除材料「${material.title || `材料 ${material.orderIndex}`}」吗？`
+
+  if (boundQuestionCount > 0) {
+    window.alert(message)
+    return
+  }
+
+  const confirmed = window.confirm(message)
+
+  if (!confirmed) {
+    return
+  }
+
+  errorMessage.value = ''
+  successMessage.value = ''
+
+  try {
+    await deleteImportDraftMaterial(selectedJob.value.id, material.id)
+    successMessage.value = '草稿材料已删除'
+    await reloadSelectedJob()
+  } catch (error) {
+    console.error(error)
+    errorMessage.value = error.message || '草稿材料删除失败'
   }
 }
 
@@ -228,13 +347,45 @@ const handleResolveWarning = async (warning) => {
   }
 }
 
+const runValidate = async () => {
+  if (!selectedJob.value?.id) {
+    return null
+  }
+
+  errorMessage.value = ''
+
+  try {
+    validateResult.value = await validateImportJob(selectedJob.value.id)
+    return validateResult.value
+  } catch (error) {
+    console.error(error)
+    errorMessage.value = error.message || '导入草稿质量检查失败'
+    return null
+  }
+}
+
 const handleConfirmImport = async () => {
   if (!selectedJob.value?.id) {
     return
   }
 
+  const validation = await runValidate()
+
+  if (!validation) {
+    return
+  }
+
+  if (!validation.canConfirm) {
+    errorMessage.value = '导入草稿存在阻塞问题，请先修复后再确认入库。'
+    return
+  }
+
+  const warningText = validation.warnings?.length
+    ? `\n\n仍有 ${validation.warnings.length} 条一般提示，确认继续吗？`
+    : ''
+
   const confirmed = window.confirm(
-    `确认将导入草稿《${selectedJob.value.title}》生成正式试卷吗？`
+    `确认将导入草稿《${selectedJob.value.title}》生成正式试卷吗？${warningText}`
   )
 
   if (!confirmed) {
@@ -256,9 +407,14 @@ const handleConfirmImport = async () => {
           : false,
     })
 
-    successMessage.value = `正式试卷已生成，共 ${result.questionCount} 题`
+    successMessage.value = `正式试卷已生成：${result.examId}，共 ${result.questionCount} 题`
+    window.alert(`已生成正式试卷：${result.examId}`)
     await loadJobs()
-    router.push(`/exam/${result.examId}`)
+    if (currentUser.value.role === 'TEACHER') {
+      router.push(`/teacher/assignments?examId=${result.examId}`)
+    } else {
+      router.push('/admin')
+    }
   } catch (error) {
     console.error(error)
     errorMessage.value = error.message || '确认入库失败'
@@ -410,12 +566,45 @@ onMounted(loadJobs)
 
           <div class="profile-actions">
             <button
+              class="secondary-btn"
+              :disabled="isConfirming"
+              @click="runValidate"
+            >
+              质量检查
+            </button>
+
+            <button
               class="primary-btn"
               :disabled="isConfirming"
               @click="handleConfirmImport"
             >
               {{ isConfirming ? '入库中……' : '确认入库' }}
             </button>
+          </div>
+        </div>
+
+        <div v-if="validateResult" class="learning-overview-card">
+          <h3>质量检查结果</h3>
+          <p>
+            {{ validateResult.canConfirm ? '可以确认入库' : '存在阻塞问题，暂不能入库' }}
+          </p>
+
+          <div v-if="validateResult.errors?.length">
+            <h4>阻塞问题</h4>
+            <ul>
+              <li v-for="item in validateResult.errors" :key="`${item.code}-${item.message}`">
+                {{ item.message }}
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="validateResult.warnings?.length">
+            <h4>一般提示</h4>
+            <ul>
+              <li v-for="item in validateResult.warnings" :key="`${item.code}-${item.message}`">
+                {{ item.message }}
+              </li>
+            </ul>
           </div>
         </div>
 
@@ -450,6 +639,9 @@ onMounted(loadJobs)
         </label>
 
         <h3>草稿材料</h3>
+        <button class="secondary-btn" @click="startCreateMaterial">
+          新增材料
+        </button>
         <div v-if="selectedJob.draftMaterials?.length" class="attempt-list">
           <article
             v-for="material in selectedJob.draftMaterials"
@@ -459,17 +651,24 @@ onMounted(loadJobs)
             <div>
               <h3>{{ material.title || `材料 ${material.orderIndex}` }}</h3>
               <p>{{ material.type }}</p>
+              <p>绑定题目：{{ material._count?.questions || 0 }} 道</p>
               <p>{{ material.content || '暂无内容' }}</p>
             </div>
-            <button class="secondary-btn" @click="startEditMaterial(material)">
-              编辑材料
-            </button>
+            <div class="profile-actions">
+              <button class="secondary-btn" @click="startEditMaterial(material)">
+                编辑材料
+              </button>
+
+              <button class="danger-btn" @click="deleteMaterial(material)">
+                删除材料
+              </button>
+            </div>
           </article>
         </div>
         <p v-else class="empty-text">暂无草稿材料。</p>
 
         <div v-if="materialForm" class="learning-overview-card">
-          <h3>编辑材料</h3>
+          <h3>{{ materialForm.isNew ? '新增材料' : '编辑材料' }}</h3>
           <label>
             类型
             <select v-model="materialForm.type">
@@ -488,13 +687,26 @@ onMounted(loadJobs)
             <textarea v-model="materialForm.content"></textarea>
           </label>
           <label>
+            音频地址
+            <input v-model="materialForm.audioUrl" type="text" />
+          </label>
+          <label>
             听力原文
             <textarea v-model="materialForm.transcript"></textarea>
           </label>
-          <button class="primary-btn" @click="saveMaterial">保存材料</button>
+          <label>
+            排序
+            <input v-model.number="materialForm.orderIndex" type="number" min="1" />
+          </label>
+          <button class="primary-btn" @click="saveMaterial">
+            {{ materialForm.isNew ? '新增材料' : '保存材料' }}
+          </button>
         </div>
 
         <h3>草稿题目</h3>
+        <button class="secondary-btn" @click="startCreateQuestion">
+          新增题目
+        </button>
         <div v-if="selectedJob.draftQuestions?.length" class="attempt-list">
           <article
             v-for="question in selectedJob.draftQuestions"
@@ -505,17 +717,26 @@ onMounted(loadJobs)
               <h3>第 {{ question.orderIndex }} 题</h3>
               <p>{{ question.text || '暂无题干' }}</p>
               <p>题型：{{ question.type }}｜分值：{{ question.score ?? '默认' }}｜知识点：{{ question.knowledgePoint || '未分类' }}</p>
-              <p v-if="question.materialId">已绑定材料</p>
+              <p>绑定材料：{{ getMaterialTitle(question.materialId) }}</p>
+              <p v-if="Array.isArray(question.options) && question.options.length">
+                选项：{{ question.options.map((option, index) => `${String.fromCharCode(65 + index)}. ${option}`).join(' / ') }}
+              </p>
             </div>
-            <button class="secondary-btn" @click="startEditQuestion(question)">
-              编辑题目
-            </button>
+            <div class="profile-actions">
+              <button class="secondary-btn" @click="startEditQuestion(question)">
+                编辑题目
+              </button>
+
+              <button class="danger-btn" @click="deleteQuestion(question)">
+                删除题目
+              </button>
+            </div>
           </article>
         </div>
         <p v-else class="empty-text">暂无草稿题目。</p>
 
         <div v-if="questionForm" class="learning-overview-card">
-          <h3>编辑题目</h3>
+          <h3>{{ questionForm.isNew ? '新增题目' : '编辑题目' }}</h3>
           <label>
             题型
             <select v-model="questionForm.type">
@@ -557,6 +778,10 @@ onMounted(loadJobs)
             <input v-model.number="questionForm.score" type="number" min="0" />
           </label>
           <label>
+            排序 / 题号
+            <input v-model.number="questionForm.orderIndex" type="number" min="1" />
+          </label>
+          <label>
             知识点
             <input v-model="questionForm.knowledgePoint" type="text" />
           </label>
@@ -568,7 +793,9 @@ onMounted(loadJobs)
             解析
             <textarea v-model="questionForm.explanation"></textarea>
           </label>
-          <button class="primary-btn" @click="saveQuestion">保存题目</button>
+          <button class="primary-btn" @click="saveQuestion">
+            {{ questionForm.isNew ? '新增题目' : '保存题目' }}
+          </button>
         </div>
 
         <h3>Warnings</h3>

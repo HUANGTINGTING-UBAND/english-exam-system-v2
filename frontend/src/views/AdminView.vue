@@ -106,6 +106,30 @@ const typeNameMap = {
   CLOZE: '完形填空',
 }
 
+const sourceTypeNameMap = {
+  PLATFORM_STANDARD: '平台标准',
+  TEACHER_CUSTOM: '教师自建',
+}
+
+const visibilityNameMap = {
+  PUBLIC: '公开',
+  PRIVATE: '私有',
+  CLASS_ONLY: '仅班级',
+}
+
+const publishStatusNameMap = {
+  DRAFT: '草稿',
+  READY: '待发布',
+  PUBLISHED: '已发布',
+  ARCHIVED: '已归档',
+}
+
+const diagnosisQualityNameMap = {
+  BASIC: '基础',
+  STANDARD: '标准',
+  DETAILED: '详细',
+}
+
 const applyExamPresetToForm = () => {
   if (form.value.gradeLevel === 'CET4') {
     form.value.timeLimit = 7500
@@ -1291,9 +1315,15 @@ onMounted(() => {
                 <div class="admin-exam-meta">
                   <span>分类：{{ gradeNameMap[exam.gradeLevel] || exam.gradeLevel }}</span>
                   <span>题目：{{ exam.questionCount }} 题</span>
+                  <span>材料：{{ exam.materialCount || 0 }} 组</span>
                   <span>满分：{{ Number(exam.totalScore || 0).toFixed(2).replace(/\.00$/, '') }} 分</span>
                   <span>时长：{{ formatTimeLimit(exam.timeLimit) }}</span>
-                  <span>状态：{{ exam.isPublished ? '已发布' : '已下架' }}</span>
+                  <span>来源：{{ sourceTypeNameMap[exam.sourceType] || '平台标准' }}</span>
+                  <span>可见范围：{{ visibilityNameMap[exam.visibility] || '公开' }}</span>
+                  <span>发布状态：{{ publishStatusNameMap[exam.publishStatus] || (exam.isPublished ? '已发布' : '待发布') }}</span>
+                  <span>诊断质量：{{ diagnosisQualityNameMap[exam.diagnosisQuality] || '基础' }}</span>
+                  <span>导入草稿：{{ exam.importJobId ? '是' : '否' }}</span>
+                  <span>创建者：{{ exam.creatorName || exam.creatorRole || '系统/旧数据' }}</span>
                   <span>创建：{{ formatDateTime(exam.createdAt) }}</span>
                 </div>
               </template>

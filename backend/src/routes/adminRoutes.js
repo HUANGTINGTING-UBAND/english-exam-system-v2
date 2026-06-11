@@ -93,6 +93,14 @@ const calculateQuestionTotalScore = (questions) => {
   return Number(total.toFixed(2))
 }
 
+const getSafePublishStatus = (exam) => {
+  if (exam.isPublished) {
+    return 'PUBLISHED'
+  }
+
+  return exam.publishStatus || 'READY'
+}
+
 const normalizeQuestionType = (type) => {
   const typeText = String(type || '').trim().toUpperCase()
   const rawText = String(type || '').trim()
@@ -413,25 +421,45 @@ router.get('/admin/exams', requireAdmin, async (req, res) => {
             score: true,
           },
         },
+        materials: {
+          select: {
+            id: true,
+          },
+        },
+        creator: {
+          select: {
+            username: true,
+            nickname: true,
+            role: true,
+          },
+        },
       },
     })
 
     const formattedExams = exams.map((exam) => {
-    const realTotalScore = calculateQuestionTotalScore(exam.questions)
+      const realTotalScore = calculateQuestionTotalScore(exam.questions)
 
-    return {
-      id: exam.id,
-      title: exam.title,
-      gradeLevel: exam.gradeLevel,
-      description: exam.description,
-      timeLimit: exam.timeLimit,
-      totalScore: realTotalScore,
-      isPublished: exam.isPublished,
-      questionCount: exam.questions.length,
-      createdAt: exam.createdAt,
-      updatedAt: exam.updatedAt,
-    }
-  })
+      return {
+        id: exam.id,
+        title: exam.title,
+        gradeLevel: exam.gradeLevel,
+        description: exam.description,
+        timeLimit: exam.timeLimit,
+        totalScore: realTotalScore,
+        isPublished: exam.isPublished,
+        sourceType: exam.sourceType,
+        visibility: exam.visibility,
+        publishStatus: getSafePublishStatus(exam),
+        diagnosisQuality: exam.diagnosisQuality,
+        materialCount: exam.materials.length,
+        importJobId: exam.importJobId,
+        creatorName: exam.creator?.nickname || exam.creator?.username || '',
+        creatorRole: exam.creator?.role || '',
+        questionCount: exam.questions.length,
+        createdAt: exam.createdAt,
+        updatedAt: exam.updatedAt,
+      }
+    })
 
     res.json({
       message: 'Admin exams loaded successfully',
@@ -466,12 +494,17 @@ router.post('/admin/exams', requireAdmin, async (req, res) => {
 
     const exam = await prisma.exam.create({
       data: {
+        createdById: req.user.id,
         title,
         gradeLevel: String(gradeLevel).toUpperCase(),
         description: description || '',
         timeLimit: Number(timeLimit || 3600),
         totalScore: 0,
         isPublished: Boolean(isPublished),
+        sourceType: 'PLATFORM_STANDARD',
+        visibility: 'PUBLIC',
+        publishStatus: Boolean(isPublished) ? 'PUBLISHED' : 'READY',
+        diagnosisQuality: 'BASIC',
       },
     })
 
@@ -529,6 +562,12 @@ router.put('/admin/exams/:examId', requireAdmin, async (req, res) => {
         totalScore: existingExam.totalScore,
         isPublished:
           isPublished === undefined ? existingExam.isPublished : Boolean(isPublished),
+        publishStatus:
+          isPublished === undefined
+            ? existingExam.publishStatus
+            : Boolean(isPublished)
+              ? 'PUBLISHED'
+              : 'READY',
       },
     })
 
@@ -691,6 +730,7 @@ router.patch('/admin/exams/:examId/publish', requireAdmin, async (req, res) => {
       },
       data: {
         isPublished: Boolean(isPublished),
+        publishStatus: Boolean(isPublished) ? 'PUBLISHED' : 'READY',
       },
     })
 
