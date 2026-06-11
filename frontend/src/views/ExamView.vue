@@ -44,6 +44,9 @@ const assignmentId = computed(() => {
   return route.params.assignmentId || route.query.assignmentId || ''
 })
 const isAssignmentExam = computed(() => Boolean(assignmentId.value))
+const isPreviewMode = computed(() => {
+  return route.query.preview === '1'
+})
 
 const currentExam = computed(() => {
   return examData.value
@@ -285,12 +288,20 @@ const getQuestionNavClass = (question, index) => {
 }
 
 const getProgressStorageKey = () => {
+  if (isPreviewMode.value) {
+    return `exam-preview-${examId.value}`
+  }
+
   return isAssignmentExam.value
     ? `assignment-progress-${assignmentId.value}-${examId.value}`
     : `exam-progress-${examId.value}`
 }
 
 const saveProgress = () => {
+  if (isPreviewMode.value) {
+    return
+  }
+
   if (!currentExam.value || !isStarted.value || isSubmitted.value) {
     return
   }
@@ -316,6 +327,10 @@ const clearProgress = () => {
 }
 
 const loadProgress = () => {
+  if (isPreviewMode.value) {
+    return
+  }
+
   const rawProgress = localStorage.getItem(getProgressStorageKey())
 
   if (!rawProgress) {
@@ -429,7 +444,7 @@ const startTimer = () => {
 const startExam = () => {
   currentUser.value = getSavedUser()
 
-  if (!currentUser.value) {
+  if (!isPreviewMode.value && !currentUser.value) {
     const confirmed = window.confirm(
       '你需要先登录才能开始考试，这样系统才能保存考试记录和错题。是否现在去登录？'
     )
@@ -602,6 +617,11 @@ const finalizeSubmit = async (type) => {
     return
   }
 
+  if (isPreviewMode.value) {
+    window.alert('当前是预览模式，不会生成正式考试记录。')
+    return
+  }
+
   isSubmitting.value = true
   isSubmitted.value = true
   isPaused.value = false
@@ -721,6 +741,10 @@ onBeforeUnmount(() => {
         你正在完成班级任务考试，提交后老师可以查看本次成绩和提交状态。
       </div>
 
+      <div v-if="isPreviewMode" class="api-success">
+        当前是试卷预览模式，可以检查材料和题目展示效果，不会生成正式考试记录。
+      </div>
+
       <div class="exam-info-grid">
         <div class="exam-info-item">
           <span class="info-label">题目数量</span>
@@ -741,9 +765,10 @@ onBeforeUnmount(() => {
       <div class="exam-notice">
         <h2>考试说明</h2>
         <ul>
-          <li>点击“开始考试”前，请先登录账号，系统会保存你的考试记录和错题。</li>
+          <li v-if="!isPreviewMode">点击“开始考试”前，请先登录账号，系统会保存你的考试记录和错题。</li>
+          <li v-else>预览模式不会保存作答进度，也不会提交正式考试记录。</li>
           <li>考试过程中可暂停，暂停时不允许继续答题。</li>
-          <li>系统会暂存在本地保存答题进度，刷新后可选择继续考试。</li>
+          <li v-if="!isPreviewMode">系统会暂存在本地保存答题进度，刷新后可选择继续考试。</li>
         </ul>
       </div>
 
@@ -788,7 +813,7 @@ onBeforeUnmount(() => {
       </section>
 
       <button class="primary-btn start-exam-btn" @click="startExam">
-        开始考试
+        {{ isPreviewMode ? '开始预览作答界面' : '开始考试' }}
       </button>
 
       <RouterLink class="back-link" to="/exams">
@@ -805,7 +830,7 @@ onBeforeUnmount(() => {
             已答 {{ answeredCount }} / 共 {{ currentQuestions.length }} 题
           </p>
           <p class="answer-progress">
-            提交方式：{{ submitTypeText }}｜暂停 {{ pauseCount }} 次｜累计暂停
+            {{ isPreviewMode ? '预览模式，不会提交正式记录' : `提交方式：${submitTypeText}` }}｜暂停 {{ pauseCount }} 次｜累计暂停
             {{ formatCountdown(totalPausedDuration) }}
           </p>
           <p v-if="isSubmitted" class="answer-progress">
@@ -855,13 +880,17 @@ onBeforeUnmount(() => {
           </button>
 
           <button
-           v-if="!isSubmitted"
+           v-if="!isSubmitted && !isPreviewMode"
            class="primary-btn"
            :disabled="isSubmitting"
            @click="submitExam"
           >
            {{ isSubmitting ? '提交中……' : '提交试卷' }}
           </button>
+
+          <span v-else-if="isPreviewMode" class="submitted-badge">
+            预览模式
+          </span>
 
           <span v-else class="submitted-badge">
             已提交

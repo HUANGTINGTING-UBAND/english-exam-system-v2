@@ -1,6 +1,10 @@
 const express = require('express')
 const prisma = require('../lib/prisma')
-const { optionalAuth, requireAuth } = require('../middlewares/authMiddleware')
+const {
+  optionalAuth,
+  requireAuth,
+  requireTeacherOrAdmin,
+} = require('../middlewares/authMiddleware')
 
 const router = express.Router()
 const examCategoryGroups = {
@@ -73,15 +77,8 @@ const normalizeChoiceAnswer = (answer) => {
 
   const text = String(answer).trim().toUpperCase()
 
-  const letterMap = {
-    A: 0,
-    B: 1,
-    C: 2,
-    D: 3,
-  }
-
-  if (letterMap[text] !== undefined) {
-    return letterMap[text]
+  if (/^[A-Z]$/.test(text)) {
+    return text.charCodeAt(0) - 65
   }
 
   const numberValue = Number(text)
@@ -93,12 +90,231 @@ const normalizeChoiceAnswer = (answer) => {
   return null
 }
 
+const gradeLevels = new Set([
+  'PRIMARY',
+  'JUNIOR',
+  'SENIOR',
+  'COLLEGE',
+  'CET4',
+  'CET6',
+  'POSTGRADUATE',
+  'IELTS',
+  'TOEFL',
+  'BUSINESS',
+  'ADULT',
+  'PROFESSIONAL',
+  'GENERAL',
+  'OTHER',
+])
+
+const questionTypes = new Set([
+  'CHOICE',
+  'TRANSLATION',
+  'ERROR_CORRECTION',
+  'WRITING',
+  'READING',
+  'CLOZE',
+])
+
+const materialTypes = new Set(['READING', 'LISTENING', 'CLOZE', 'OTHER'])
+const examSourceTypes = new Set(['PLATFORM_STANDARD', 'TEACHER_CUSTOM'])
+const examVisibilities = new Set(['PUBLIC', 'PRIVATE', 'CLASS_ONLY'])
+const examPublishStatuses = new Set(['DRAFT', 'READY', 'PUBLISHED', 'ARCHIVED'])
+const diagnosisQualityLevels = new Set(['BASIC', 'STANDARD', 'DETAILED'])
+
+const normalizeEnum = (value, allowedValues, fallback = null) => {
+  const normalized = String(value || '').trim().toUpperCase()
+  return allowedValues.has(normalized) ? normalized : fallback
+}
+
+const parseJsonValue = (value, fallback = null) => {
+  if (value === undefined) {
+    return fallback
+  }
+
+  if (typeof value !== 'string') {
+    return value
+  }
+
+  try {
+    return JSON.parse(value)
+  } catch (error) {
+    return value
+  }
+}
+
+const normalizeOptionsInput = (options) => {
+  if (Array.isArray(options)) {
+    return options
+      .map((option) => String(option || '').trim())
+      .filter(Boolean)
+  }
+
+  if (typeof options === 'string') {
+    const parsed = parseJsonValue(options, options)
+
+    if (Array.isArray(parsed)) {
+      return normalizeOptionsInput(parsed)
+    }
+
+    return options
+      .split('\n')
+      .map((option) => option.trim())
+      .filter(Boolean)
+  }
+
+  return null
+}
+
 const getSafePublishStatus = (exam) => {
   if (exam.isPublished) {
     return 'PUBLISHED'
   }
 
   return exam.publishStatus || 'READY'
+}
+
+const canEditExam = (user, exam) => {
+  if (!user || !exam) {
+    return false
+  }
+
+  if (user.role === 'ADMIN') {
+    return true
+  }
+
+  return (
+    user.role === 'TEACHER' &&
+    exam.createdById === user.id &&
+    exam.sourceType === 'TEACHER_CUSTOM'
+  )
+}
+
+const editableExamInclude = {
+  creator: {
+    select: {
+      username: true,
+      nickname: true,
+      role: true,
+    },
+  },
+  importJob: {
+    select: {
+      id: true,
+      title: true,
+      status: true,
+    },
+  },
+  materials: {
+    orderBy: {
+      orderIndex: 'asc',
+    },
+    include: {
+      _count: {
+        select: {
+          questions: true,
+        },
+      },
+    },
+  },
+  questions: {
+    orderBy: {
+      orderIndex: 'asc',
+    },
+    include: {
+      material: true,
+    },
+  },
+}
+
+const loadEditableExam = async (req, examId, include = editableExamInclude) => {
+  const query = {
+    where: {
+      id: examId,
+    },
+  }
+
+  if (include && Object.keys(include).length > 0) {
+    query.include = include
+  }
+
+  const exam = await prisma.exam.findUnique(query)
+
+  if (!exam) {
+    return {
+      status: 404,
+      message: '试卷不存在',
+    }
+  }
+
+  if (!canEditExam(req.user, exam)) {
+    return {
+      status: 403,
+      message: '你没有权限编辑该试卷',
+    }
+  }
+
+  return {
+    exam,
+  }
+}
+
+const calculateExamTotalScore = (questions = []) => {
+  return questions.reduce((sum, question) => {
+    return sum + Number(question.score || 0)
+  }, 0)
+}
+
+const updateExamTotalScore = async (client, examId) => {
+  const questions = await client.question.findMany({
+    where: {
+      examId,
+    },
+    select: {
+      score: true,
+    },
+  })
+
+  const totalScore = calculateExamTotalScore(questions)
+
+  await client.exam.update({
+    where: {
+      id: examId,
+    },
+    data: {
+      totalScore,
+    },
+  })
+
+  return totalScore
+}
+
+const formatEditableExam = (exam) => {
+  const totalScore = calculateExamTotalScore(exam.questions || [])
+
+  return {
+    id: exam.id,
+    title: exam.title,
+    gradeLevel: exam.gradeLevel,
+    description: exam.description,
+    timeLimit: exam.timeLimit,
+    totalScore: totalScore || exam.totalScore,
+    isPublished: exam.isPublished,
+    sourceType: exam.sourceType,
+    visibility: exam.visibility,
+    publishStatus: getSafePublishStatus(exam),
+    diagnosisQuality: exam.diagnosisQuality,
+    importJobId: exam.importJobId,
+    importJobTitle: exam.importJob?.title || '',
+    creatorName: exam.creator?.nickname || exam.creator?.username || '',
+    creatorRole: exam.creator?.role || '',
+    materialCount: exam.materials?.length || 0,
+    questionCount: exam.questions?.length || 0,
+    materials: exam.materials || [],
+    questions: exam.questions || [],
+    createdAt: exam.createdAt,
+    updatedAt: exam.updatedAt,
+  }
 }
 
 const getSelectedIndex = (answer) => {
@@ -185,11 +401,20 @@ router.get('/exams', optionalAuth, async (req, res) => {
       req.user?.role === 'TEACHER'
         ? {
             createdById: req.user.id,
+            sourceType: 'TEACHER_CUSTOM',
           }
         : req.user?.role === 'ADMIN'
           ? {}
           : {
-              isPublished: true,
+              visibility: 'PUBLIC',
+              OR: [
+                {
+                  publishStatus: 'PUBLISHED',
+                },
+                {
+                  isPublished: true,
+                },
+              ],
             }
 
     const exams = await prisma.exam.findMany({
@@ -368,6 +593,555 @@ router.get('/exams/:examId/questions', async (req, res) => {
 
     res.status(500).json({
       message: '题目列表获取失败',
+      error: error.message,
+    })
+  }
+})
+
+router.get('/exams/:examId/edit', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { examId } = req.params
+    const result = await loadEditableExam(req, examId)
+
+    if (!result.exam) {
+      return res.status(result.status).json({
+        message: result.message,
+      })
+    }
+
+    res.json({
+      message: '正式试卷编辑详情获取成功',
+      data: formatEditableExam(result.exam),
+    })
+  } catch (error) {
+    console.error('Get editable exam error:', error)
+
+    res.status(500).json({
+      message: '正式试卷编辑详情获取失败',
+      error: error.message,
+    })
+  }
+})
+
+router.patch('/exams/:examId', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { examId } = req.params
+    const result = await loadEditableExam(req, examId, {
+      creator: true,
+    })
+
+    if (!result.exam) {
+      return res.status(result.status).json({
+        message: result.message,
+      })
+    }
+
+    const existingExam = result.exam
+    const publishStatus = normalizeEnum(
+      req.body.publishStatus,
+      examPublishStatuses,
+      existingExam.publishStatus
+    )
+    const sourceType =
+      req.user.role === 'ADMIN'
+        ? normalizeEnum(req.body.sourceType, examSourceTypes, existingExam.sourceType)
+        : 'TEACHER_CUSTOM'
+    const visibility = normalizeEnum(
+      req.body.visibility,
+      examVisibilities,
+      existingExam.visibility
+    )
+
+    if (req.user.role === 'TEACHER' && visibility === 'PUBLIC') {
+      return res.status(400).json({
+        message: '教师自建试卷暂不支持设置为公开试卷，请使用私有或仅班级可见',
+      })
+    }
+
+    const updatedExam = await prisma.exam.update({
+      where: {
+        id: examId,
+      },
+      data: {
+        title: req.body.title === undefined ? existingExam.title : String(req.body.title || '').trim(),
+        description:
+          req.body.description === undefined
+            ? existingExam.description
+            : String(req.body.description || ''),
+        gradeLevel:
+          req.body.gradeLevel === undefined
+            ? existingExam.gradeLevel
+            : normalizeEnum(req.body.gradeLevel, gradeLevels, existingExam.gradeLevel),
+        timeLimit:
+          req.body.timeLimit === undefined
+            ? existingExam.timeLimit
+            : Number(req.body.timeLimit || existingExam.timeLimit),
+        sourceType,
+        visibility,
+        publishStatus,
+        isPublished: publishStatus === 'PUBLISHED',
+        diagnosisQuality: normalizeEnum(
+          req.body.diagnosisQuality,
+          diagnosisQualityLevels,
+          existingExam.diagnosisQuality
+        ),
+      },
+      include: editableExamInclude,
+    })
+
+    res.json({
+      message: '正式试卷信息更新成功',
+      data: formatEditableExam(updatedExam),
+    })
+  } catch (error) {
+    console.error('Update editable exam error:', error)
+
+    res.status(500).json({
+      message: '正式试卷信息更新失败',
+      error: error.message,
+    })
+  }
+})
+
+router.post('/exams/:examId/materials', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { examId } = req.params
+    const result = await loadEditableExam(req, examId, {})
+
+    if (!result.exam) {
+      return res.status(result.status).json({
+        message: result.message,
+      })
+    }
+
+    const materialCount = await prisma.questionMaterial.count({
+      where: {
+        examId,
+      },
+    })
+
+    const material = await prisma.questionMaterial.create({
+      data: {
+        examId,
+        type: normalizeEnum(req.body.type, materialTypes, 'READING'),
+        title: req.body.title ? String(req.body.title).trim() : `材料 ${materialCount + 1}`,
+        content: String(req.body.content || ''),
+        audioUrl: req.body.audioUrl ? String(req.body.audioUrl).trim() : '',
+        transcript: req.body.transcript ? String(req.body.transcript) : '',
+        orderIndex: Number(req.body.orderIndex || materialCount + 1),
+      },
+      include: {
+        _count: {
+          select: {
+            questions: true,
+          },
+        },
+      },
+    })
+
+    res.status(201).json({
+      message: '正式材料创建成功',
+      data: material,
+    })
+  } catch (error) {
+    console.error('Create exam material error:', error)
+
+    res.status(500).json({
+      message: '正式材料创建失败',
+      error: error.message,
+    })
+  }
+})
+
+router.patch('/exams/:examId/materials/:materialId', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { examId, materialId } = req.params
+    const result = await loadEditableExam(req, examId, {})
+
+    if (!result.exam) {
+      return res.status(result.status).json({
+        message: result.message,
+      })
+    }
+
+    const existingMaterial = await prisma.questionMaterial.findFirst({
+      where: {
+        id: materialId,
+        examId,
+      },
+    })
+
+    if (!existingMaterial) {
+      return res.status(404).json({
+        message: '正式材料不存在',
+      })
+    }
+
+    const material = await prisma.questionMaterial.update({
+      where: {
+        id: materialId,
+      },
+      data: {
+        type: req.body.type
+          ? normalizeEnum(req.body.type, materialTypes, existingMaterial.type)
+          : existingMaterial.type,
+        title: req.body.title === undefined ? existingMaterial.title : String(req.body.title || ''),
+        content:
+          req.body.content === undefined
+            ? existingMaterial.content
+            : String(req.body.content || ''),
+        audioUrl:
+          req.body.audioUrl === undefined
+            ? existingMaterial.audioUrl
+            : String(req.body.audioUrl || ''),
+        transcript:
+          req.body.transcript === undefined
+            ? existingMaterial.transcript
+            : String(req.body.transcript || ''),
+        orderIndex:
+          req.body.orderIndex === undefined
+            ? existingMaterial.orderIndex
+            : Number(req.body.orderIndex),
+      },
+      include: {
+        _count: {
+          select: {
+            questions: true,
+          },
+        },
+      },
+    })
+
+    res.json({
+      message: '正式材料更新成功',
+      data: material,
+    })
+  } catch (error) {
+    console.error('Update exam material error:', error)
+
+    res.status(500).json({
+      message: '正式材料更新失败',
+      error: error.message,
+    })
+  }
+})
+
+router.delete('/exams/:examId/materials/:materialId', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { examId, materialId } = req.params
+    const result = await loadEditableExam(req, examId, {})
+
+    if (!result.exam) {
+      return res.status(result.status).json({
+        message: result.message,
+      })
+    }
+
+    const existingMaterial = await prisma.questionMaterial.findFirst({
+      where: {
+        id: materialId,
+        examId,
+      },
+      include: {
+        _count: {
+          select: {
+            questions: true,
+          },
+        },
+      },
+    })
+
+    if (!existingMaterial) {
+      return res.status(404).json({
+        message: '正式材料不存在',
+      })
+    }
+
+    if (existingMaterial._count.questions > 0) {
+      return res.status(400).json({
+        message: `该材料已有 ${existingMaterial._count.questions} 道题绑定，请先调整题目绑定后再删除`,
+        data: {
+          boundQuestionCount: existingMaterial._count.questions,
+        },
+      })
+    }
+
+    await prisma.questionMaterial.delete({
+      where: {
+        id: materialId,
+      },
+    })
+
+    res.json({
+      message: '正式材料删除成功',
+      data: existingMaterial,
+    })
+  } catch (error) {
+    console.error('Delete exam material error:', error)
+
+    res.status(500).json({
+      message: '正式材料删除失败',
+      error: error.message,
+    })
+  }
+})
+
+router.post('/exams/:examId/questions', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { examId } = req.params
+    const result = await loadEditableExam(req, examId, {})
+
+    if (!result.exam) {
+      return res.status(result.status).json({
+        message: result.message,
+      })
+    }
+
+    if (req.body.materialId) {
+      const material = await prisma.questionMaterial.findFirst({
+        where: {
+          id: req.body.materialId,
+          examId,
+        },
+      })
+
+      if (!material) {
+        return res.status(400).json({
+          message: '绑定的正式材料不存在或不属于当前试卷',
+        })
+      }
+    }
+
+    const questionCount = await prisma.question.count({
+      where: {
+        examId,
+      },
+    })
+    const type = normalizeEnum(req.body.type, questionTypes, 'CHOICE')
+
+    const question = await prisma.$transaction(async (tx) => {
+      const createdQuestion = await tx.question.create({
+        data: {
+          examId,
+          materialId: req.body.materialId || null,
+          type,
+          text: String(req.body.text || `第 ${questionCount + 1} 题`),
+          options: normalizeOptionsInput(req.body.options),
+          answer:
+            req.body.answer === undefined || req.body.answer === ''
+              ? null
+              : type === 'CHOICE'
+                ? normalizeChoiceAnswer(req.body.answer)
+                : parseJsonValue(req.body.answer),
+          score:
+            req.body.score === undefined || req.body.score === ''
+              ? 2
+              : Number(req.body.score),
+          knowledgePoint: req.body.knowledgePoint || '未分类',
+          referenceAnswer: req.body.referenceAnswer || '',
+          explanation: req.body.explanation || '',
+          orderIndex: Number(req.body.orderIndex || questionCount + 1),
+        },
+        include: {
+          material: true,
+        },
+      })
+
+      await updateExamTotalScore(tx, examId)
+      return createdQuestion
+    })
+
+    res.status(201).json({
+      message: '正式题目创建成功',
+      data: question,
+    })
+  } catch (error) {
+    console.error('Create exam question error:', error)
+
+    res.status(500).json({
+      message: '正式题目创建失败',
+      error: error.message,
+    })
+  }
+})
+
+router.patch('/exams/:examId/questions/:questionId', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { examId, questionId } = req.params
+    const result = await loadEditableExam(req, examId, {})
+
+    if (!result.exam) {
+      return res.status(result.status).json({
+        message: result.message,
+      })
+    }
+
+    const existingQuestion = await prisma.question.findFirst({
+      where: {
+        id: questionId,
+        examId,
+      },
+    })
+
+    if (!existingQuestion) {
+      return res.status(404).json({
+        message: '正式题目不存在',
+      })
+    }
+
+    if (req.body.materialId) {
+      const material = await prisma.questionMaterial.findFirst({
+        where: {
+          id: req.body.materialId,
+          examId,
+        },
+      })
+
+      if (!material) {
+        return res.status(400).json({
+          message: '绑定的正式材料不存在或不属于当前试卷',
+        })
+      }
+    }
+
+    const nextType = req.body.type
+      ? normalizeEnum(req.body.type, questionTypes, existingQuestion.type)
+      : existingQuestion.type
+
+    const question = await prisma.$transaction(async (tx) => {
+      const updatedQuestion = await tx.question.update({
+        where: {
+          id: questionId,
+        },
+        data: {
+          materialId:
+            req.body.materialId === undefined
+              ? existingQuestion.materialId
+              : req.body.materialId || null,
+          type: nextType,
+          text: req.body.text === undefined ? existingQuestion.text : String(req.body.text),
+          options:
+            req.body.options === undefined
+              ? existingQuestion.options
+              : normalizeOptionsInput(req.body.options),
+          answer:
+            req.body.answer === undefined
+              ? existingQuestion.answer
+              : req.body.answer === ''
+                ? null
+                : nextType === 'CHOICE'
+                  ? normalizeChoiceAnswer(req.body.answer)
+                  : parseJsonValue(req.body.answer),
+          score:
+            req.body.score === undefined || req.body.score === ''
+              ? existingQuestion.score
+              : Number(req.body.score),
+          knowledgePoint:
+            req.body.knowledgePoint === undefined
+              ? existingQuestion.knowledgePoint
+              : String(req.body.knowledgePoint || '未分类'),
+          referenceAnswer:
+            req.body.referenceAnswer === undefined
+              ? existingQuestion.referenceAnswer
+              : String(req.body.referenceAnswer || ''),
+          explanation:
+            req.body.explanation === undefined
+              ? existingQuestion.explanation
+              : String(req.body.explanation || ''),
+          orderIndex:
+            req.body.orderIndex === undefined
+              ? existingQuestion.orderIndex
+              : Number(req.body.orderIndex),
+        },
+        include: {
+          material: true,
+        },
+      })
+
+      await updateExamTotalScore(tx, examId)
+      return updatedQuestion
+    })
+
+    res.json({
+      message: '正式题目更新成功',
+      data: question,
+    })
+  } catch (error) {
+    console.error('Update exam question error:', error)
+
+    res.status(500).json({
+      message: '正式题目更新失败',
+      error: error.message,
+    })
+  }
+})
+
+router.delete('/exams/:examId/questions/:questionId', requireTeacherOrAdmin, async (req, res) => {
+  try {
+    const { examId, questionId } = req.params
+    const result = await loadEditableExam(req, examId, {})
+
+    if (!result.exam) {
+      return res.status(result.status).json({
+        message: result.message,
+      })
+    }
+
+    const existingQuestion = await prisma.question.findFirst({
+      where: {
+        id: questionId,
+        examId,
+      },
+    })
+
+    if (!existingQuestion) {
+      return res.status(404).json({
+        message: '正式题目不存在',
+      })
+    }
+
+    const [userAnswerCount, wrongQuestionCount] = await Promise.all([
+      prisma.userAnswer.count({
+        where: {
+          questionId,
+        },
+      }),
+      prisma.wrongQuestion.count({
+        where: {
+          questionId,
+        },
+      }),
+    ])
+
+    if (userAnswerCount > 0 || wrongQuestionCount > 0) {
+      return res.status(400).json({
+        message: '该题目已有历史作答或错题记录，暂不能删除，以免破坏考试历史展示',
+        data: {
+          userAnswerCount,
+          wrongQuestionCount,
+        },
+      })
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.question.delete({
+        where: {
+          id: questionId,
+        },
+      })
+
+      await updateExamTotalScore(tx, examId)
+    })
+
+    res.json({
+      message: '正式题目删除成功',
+      data: existingQuestion,
+    })
+  } catch (error) {
+    console.error('Delete exam question error:', error)
+
+    res.status(500).json({
+      message: '正式题目删除失败',
       error: error.message,
     })
   }

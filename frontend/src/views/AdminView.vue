@@ -1338,6 +1338,13 @@ onMounted(() => {
                 编辑试卷
               </button>
 
+              <RouterLink
+                class="secondary-btn"
+                :to="`/admin/exams/${exam.id}/edit`"
+              >
+                正式编辑
+              </RouterLink>
+
               <button class="secondary-btn" @click="handleTogglePublish(exam)">
                 {{ exam.isPublished ? '下架' : '发布' }}
               </button>

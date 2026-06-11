@@ -78,6 +78,10 @@ onMounted(loadDashboard)
             管理任务
           </RouterLink>
 
+          <RouterLink class="secondary-btn" to="/teacher/assignments">
+            我的试卷
+          </RouterLink>
+
           <RouterLink class="secondary-btn" to="/import-drafts">
             导入草稿
           </RouterLink>

@@ -101,6 +101,13 @@ const getSafePublishStatus = (exam) => {
   return exam.publishStatus || 'READY'
 }
 
+const examPublishStatuses = new Set(['DRAFT', 'READY', 'PUBLISHED', 'ARCHIVED'])
+
+const normalizePublishStatus = (value, fallback = 'READY') => {
+  const normalized = String(value || '').trim().toUpperCase()
+  return examPublishStatuses.has(normalized) ? normalized : fallback
+}
+
 const normalizeQuestionType = (type) => {
   const typeText = String(type || '').trim().toUpperCase()
   const rawText = String(type || '').trim()
@@ -710,7 +717,7 @@ router.delete('/admin/exams/:examId', requireAdmin, async (req, res) => {
 router.patch('/admin/exams/:examId/publish', requireAdmin, async (req, res) => {
   try {
     const { examId } = req.params
-    const { isPublished } = req.body
+    const { isPublished, publishStatus } = req.body
 
     const existingExam = await prisma.exam.findUnique({
       where: {
@@ -724,18 +731,24 @@ router.patch('/admin/exams/:examId/publish', requireAdmin, async (req, res) => {
       })
     }
 
+    const nextPublishStatus = publishStatus
+      ? normalizePublishStatus(publishStatus, existingExam.publishStatus)
+      : Boolean(isPublished)
+        ? 'PUBLISHED'
+        : 'READY'
+
     const updatedExam = await prisma.exam.update({
       where: {
         id: examId,
       },
       data: {
-        isPublished: Boolean(isPublished),
-        publishStatus: Boolean(isPublished) ? 'PUBLISHED' : 'READY',
+        isPublished: nextPublishStatus === 'PUBLISHED',
+        publishStatus: nextPublishStatus,
       },
     })
 
     res.json({
-      message: updatedExam.isPublished ? '试卷已发布' : '试卷已下架',
+      message: updatedExam.isPublished ? '试卷已发布' : '试卷发布状态已更新',
       data: updatedExam,
     })
   } catch (error) {

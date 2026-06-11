@@ -31,6 +31,9 @@ const form = ref({
 })
 
 const isTeacher = computed(() => currentUser.value?.role === 'TEACHER')
+const selectedExam = computed(() => {
+  return exams.value.find((exam) => exam.id === form.value.examId) || null
+})
 
 const loadData = async () => {
   if (!isTeacher.value) {
@@ -231,6 +234,18 @@ onMounted(loadData)
           </select>
         </label>
 
+        <div v-if="selectedExam" class="api-success">
+          当前试卷：{{ selectedExam.title }}｜
+          {{ selectedExam.questionCount || 0 }} 题｜
+          {{ selectedExam.materialCount || 0 }} 组材料
+          <RouterLink
+            class="secondary-btn"
+            :to="`/teacher/exams/${selectedExam.id}/edit`"
+          >
+            编辑这份试卷
+          </RouterLink>
+        </div>
+
         <label>
           任务标题
           <input v-model="form.title" type="text" placeholder="默认使用试卷标题" />
@@ -253,6 +268,47 @@ onMounted(loadData)
         >
           {{ isSubmitting ? '发布中……' : '发布任务' }}
         </button>
+      </div>
+
+      <div class="learning-overview-card">
+        <div class="section-title-row">
+          <h2>我的试卷</h2>
+        </div>
+
+        <div v-if="exams.length > 0" class="attempt-list">
+          <article
+            v-for="exam in exams"
+            :key="exam.id"
+            class="attempt-card"
+          >
+            <div>
+              <h3>{{ exam.title }}</h3>
+              <p>
+                {{ exam.sourceType || 'TEACHER_CUSTOM' }}｜
+                {{ exam.visibility || 'PRIVATE' }}｜
+                {{ exam.publishStatus || (exam.isPublished ? 'PUBLISHED' : 'READY') }}
+              </p>
+              <p>题目 {{ exam.questionCount || 0 }} 道｜材料 {{ exam.materialCount || 0 }} 组</p>
+            </div>
+
+            <div class="profile-actions">
+              <button class="secondary-btn" @click="form.examId = exam.id">
+                选择发布
+              </button>
+
+              <RouterLink
+                class="secondary-btn"
+                :to="`/teacher/exams/${exam.id}/edit`"
+              >
+                编辑
+              </RouterLink>
+            </div>
+          </article>
+        </div>
+
+        <p v-else class="empty-text">
+          暂无教师自建试卷，可先从导入草稿确认入库。
+        </p>
       </div>
 
       <div class="learning-overview-card">

@@ -15,6 +15,7 @@ import TeacherAssignmentView from '../views/TeacherAssignmentView.vue'
 import StudentAssignmentsView from '../views/StudentAssignmentsView.vue'
 import ImportDraftView from '../views/ImportDraftView.vue'
 import SkillManageView from '../views/SkillManageView.vue'
+import ExamEditView from '../views/ExamEditView.vue'
 import { getSavedUser } from '../api/authApi'
 
 const routes = [
@@ -104,9 +105,27 @@ const routes = [
     },
   },
   {
+    path: '/admin/exams/:examId/edit',
+    name: 'admin-exam-edit',
+    component: ExamEditView,
+    meta: {
+      requiresAuth: true,
+      roles: ['ADMIN'],
+    },
+  },
+  {
     path: '/teacher',
     name: 'teacher-dashboard',
     component: TeacherDashboardView,
+    meta: {
+      requiresAuth: true,
+      roles: ['TEACHER'],
+    },
+  },
+  {
+    path: '/teacher/exams/:examId/edit',
+    name: 'teacher-exam-edit',
+    component: ExamEditView,
     meta: {
       requiresAuth: true,
       roles: ['TEACHER'],

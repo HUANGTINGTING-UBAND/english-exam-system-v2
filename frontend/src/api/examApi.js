@@ -253,6 +253,103 @@ export const updateAdminExamPublishStatus = async (examId, isPublished) => {
   return parseResponse(response, '更新试卷发布状态失败')
 }
 
+export const getEditableExam = async (examId) => {
+  const response = await fetch(`${API_BASE_URL}/exams/${examId}/edit`, {
+    headers: {
+      ...getAuthHeaders(),
+    },
+  })
+
+  return parseResponse(response, '获取正式试卷编辑详情失败')
+}
+
+export const updateEditableExam = async (examId, examData) => {
+  const response = await fetch(`${API_BASE_URL}/exams/${examId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(examData),
+  })
+
+  return parseResponse(response, '更新正式试卷失败')
+}
+
+export const createExamMaterial = async (examId, materialData) => {
+  const response = await fetch(`${API_BASE_URL}/exams/${examId}/materials`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(materialData),
+  })
+
+  return parseResponse(response, '新增正式材料失败')
+}
+
+export const updateExamMaterial = async (examId, materialId, materialData) => {
+  const response = await fetch(`${API_BASE_URL}/exams/${examId}/materials/${materialId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(materialData),
+  })
+
+  return parseResponse(response, '更新正式材料失败')
+}
+
+export const deleteExamMaterial = async (examId, materialId) => {
+  const response = await fetch(`${API_BASE_URL}/exams/${examId}/materials/${materialId}`, {
+    method: 'DELETE',
+    headers: {
+      ...getAuthHeaders(),
+    },
+  })
+
+  return parseResponse(response, '删除正式材料失败')
+}
+
+export const createExamQuestion = async (examId, questionData) => {
+  const response = await fetch(`${API_BASE_URL}/exams/${examId}/questions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(questionData),
+  })
+
+  return parseResponse(response, '新增正式题目失败')
+}
+
+export const updateExamQuestion = async (examId, questionId, questionData) => {
+  const response = await fetch(`${API_BASE_URL}/exams/${examId}/questions/${questionId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(questionData),
+  })
+
+  return parseResponse(response, '更新正式题目失败')
+}
+
+export const deleteExamQuestion = async (examId, questionId) => {
+  const response = await fetch(`${API_BASE_URL}/exams/${examId}/questions/${questionId}`, {
+    method: 'DELETE',
+    headers: {
+      ...getAuthHeaders(),
+    },
+  })
+
+  return parseResponse(response, '删除正式题目失败')
+}
+
 export const getAdminExamQuestions = async (examId) => {
   const response = await fetch(`${API_BASE_URL}/admin/exams/${examId}/questions`, {
     headers: {
