@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  STUDENT
+  ADMIN
+}
+
+enum GradeLevel {
+  PRIMARY
+  JUNIOR
+  SENIOR
+  COLLEGE
+  CET4
+  CET6
+  POSTGRADUATE
+  IELTS
+  TOEFL
+  BUSINESS
+  ADULT
+  PROFESSIONAL
+  GENERAL
+  OTHER
+}
+
+enum QuestionType {
+  CHOICE
+  TRANSLATION
+  ERROR_CORRECTION
+  WRITING
+  READING
+  CLOZE
+}
+
+enum SubmitType {
+  MANUAL
+  AUTO
+}
+
+model User {
+  id           String      @id @default(cuid())
+  username     String      @unique
+  passwordHash String
+  nickname     String?
+  role         Role        @default(STUDENT)
+  gradeLevel   GradeLevel?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  attempts       ExamAttempt[]
+  wrongQuestions WrongQuestion[]
+}
+
+model Exam {
+  id          String     @id @default(cuid())
+  title       String
+  gradeLevel  GradeLevel
+  description String?
+  timeLimit   Int
+  totalScore  Float
+  isPublished Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  questions      Question[]
+  attempts       ExamAttempt[]
+  wrongQuestions WrongQuestion[]
+}
+
+model Question {
+  id              String       @id @default(cuid())
+  examId          String
+  type            QuestionType
+  text            String
+  options         Json?
+  answer          Json?
+  score           Float
+  knowledgePoint  String
+  referenceAnswer String?
+  explanation     String?
+  orderIndex      Int
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  exam           Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  userAnswers    UserAnswer[]
+  wrongQuestions WrongQuestion[]
+
+  @@index([examId])
+}
+
+model ExamAttempt {
+  id                  String     @id @default(cuid())
+  userId              String
+  examId              String
+  objectiveScore      Float      @default(0)
+  subjectiveScore     Float      @default(0)
+  totalScore          Float      @default(0)
+  accuracyRate        Float      @default(0)
+  submitType          SubmitType
+  usedTime            Int        @default(0)
+  pauseCount          Int        @default(0)
+  totalPausedDuration Int        @default(0)
+  startedAt           DateTime?
+  submittedAt         DateTime?
+  createdAt           DateTime   @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam        Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  userAnswers UserAnswer[]
+  wrongQuestions WrongQuestion[]
+
+  @@index([userId])
+  @@index([examId])
+}
+
+model UserAnswer {
+  id            String   @id @default(cuid())
+  attemptId     String
+  questionId    String
+  answerText    String?
+  selectedIndex Int?
+  score         Float    @default(0)
+  isCorrect     Boolean?
+  createdAt     DateTime @default(now())
+
+  attempt  ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId])
+  @@index([questionId])
+}
+
+model WrongQuestion {
+  id             String       @id @default(cuid())
+  userId         String
+  examId         String
+  questionId     String
+  attemptId      String?
+  questionType   QuestionType
+  knowledgePoint String
+  reason         String?
+  note           String?
+  createdAt      DateTime     @default(now())
+
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exam     Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  question Question     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  attempt  ExamAttempt? @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([examId])
+  @@index([questionId])
+  @@index([attemptId])
+}
