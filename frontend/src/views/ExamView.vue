@@ -53,6 +53,27 @@ const currentQuestions = computed(() => {
   return questionsData.value
 })
 
+const materialPreviewList = computed(() => {
+  const examMaterials = currentExam.value?.materials
+
+  if (Array.isArray(examMaterials) && examMaterials.length > 0) {
+    return examMaterials
+  }
+
+  const seen = new Set()
+
+  return currentQuestions.value
+    .map((question) => question.material)
+    .filter((material) => {
+      if (!material || seen.has(material.id)) {
+        return false
+      }
+
+      seen.add(material.id)
+      return true
+    })
+})
+
 const currentQuestion = computed(() => {
   return currentQuestions.value[currentQuestionIndex.value]
 })
@@ -728,6 +749,21 @@ onBeforeUnmount(() => {
 
       <section class="question-preview-section">
         <h2>本卷题目预览</h2>
+
+        <div v-if="materialPreviewList.length > 0" class="question-preview-list">
+          <div
+            v-for="material in materialPreviewList"
+            :key="material.id"
+            class="question-material-box"
+          >
+            <p class="tag">{{ material.type }}</p>
+            <h3>{{ material.title || '题目材料' }}</h3>
+            <p>{{ material.content }}</p>
+            <p v-if="material.transcript">
+              听力原文：{{ material.transcript }}
+            </p>
+          </div>
+        </div>
 
         <div v-if="currentQuestions.length > 0" class="question-preview-list">
           <div

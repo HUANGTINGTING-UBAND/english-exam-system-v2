@@ -311,6 +311,7 @@ http://localhost:5173
 ```env
 DATABASE_URL="你的 PostgreSQL 数据库连接地址"
 JWT_SECRET="你的 JWT 密钥"
+TEACHER_REGISTER_CODE="教师注册码，未配置时后端默认 teacher-invite-code"
 FRONTEND_URL="你的前端地址"
 NODE_ENV="development"
 ```
@@ -319,6 +320,8 @@ NODE_ENV="development"
 
 ```text
 .env 文件不能提交到 GitHub。
+仓库提供 backend/.env.example 作为示例，请复制为 backend/.env 后再填写真实配置。
+npx prisma generate 需要能读取 DATABASE_URL；本地可先使用有效的 PostgreSQL 连接串。
 ```
 
 ### 8.2 前端环境变量

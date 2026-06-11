@@ -128,6 +128,25 @@ export const getStudentAssignments = async () => {
 }
 
 export const createImportJob = async (jobData) => {
+  if (jobData.file) {
+    const formData = new FormData()
+
+    formData.append('file', jobData.file)
+    formData.append('title', jobData.title || '')
+    formData.append('gradeLevel', jobData.gradeLevel || '')
+    formData.append('sourceType', jobData.sourceType || 'file')
+
+    const response = await fetch(`${API_BASE_URL}/import/jobs`, {
+      method: 'POST',
+      headers: {
+        ...getAuthHeaders(),
+      },
+      body: formData,
+    })
+
+    return parseResponse(response, '创建导入草稿失败')
+  }
+
   const response = await fetch(`${API_BASE_URL}/import/jobs`, {
     method: 'POST',
     headers: {
@@ -154,6 +173,54 @@ export const getImportJob = async (jobId) => {
   })
 
   return parseResponse(response, '获取导入草稿详情失败')
+}
+
+export const updateImportDraftQuestion = async (jobId, questionId, questionData) => {
+  const response = await fetch(`${API_BASE_URL}/import/jobs/${jobId}/draft-questions/${questionId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(questionData),
+  })
+
+  return parseResponse(response, '更新草稿题目失败')
+}
+
+export const updateImportDraftMaterial = async (jobId, materialId, materialData) => {
+  const response = await fetch(`${API_BASE_URL}/import/jobs/${jobId}/draft-materials/${materialId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(materialData),
+  })
+
+  return parseResponse(response, '更新草稿材料失败')
+}
+
+export const resolveImportWarning = async (jobId, warningId) => {
+  const response = await fetch(`${API_BASE_URL}/import/jobs/${jobId}/warnings/${warningId}/resolve`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+  })
+
+  return parseResponse(response, '处理 warning 失败')
+}
+
+export const confirmImportJob = async (jobId, confirmData = {}) => {
+  const response = await fetch(`${API_BASE_URL}/import/jobs/${jobId}/confirm`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(confirmData),
+  })
+
+  return parseResponse(response, '确认入库失败')
 }
 
 export const createSkill = async (skillData) => {

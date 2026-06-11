@@ -368,6 +368,8 @@ model ImportWarning {
   level           String   @default("warning")
   field           String?
   message         String
+  isResolved      Boolean  @default(false)
+  resolvedAt      DateTime?
   createdAt       DateTime @default(now())
 
   importJob     ImportJob            @relation(fields: [importJobId], references: [id], onDelete: Cascade)

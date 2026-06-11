@@ -238,6 +238,11 @@ router.get('/exams/:examId', async (req, res) => {
         id: examId,
       },
       include: {
+        materials: {
+          orderBy: {
+            orderIndex: 'asc',
+          },
+        },
         questions: {
           select: {
             id: true,
@@ -267,6 +272,7 @@ router.get('/exams/:examId', async (req, res) => {
         timeLimit: exam.timeLimit,
         totalScore: realTotalScore || exam.totalScore,
         isPublished: exam.isPublished,
+        materials: exam.materials,
         createdAt: exam.createdAt,
         updatedAt: exam.updatedAt,
       },
